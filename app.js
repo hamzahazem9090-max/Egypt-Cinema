@@ -908,7 +908,7 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
         '">تفاصيل الفيلم</a></div>' +
         '<div class="watch-frame"><iframe id="watchIframe" src="' +
         esc(resolved.embedUrl) +
-        '" sandbox="allow-scripts allow-same-origin allow-presentation allow-orientation-lock" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="مشاهدة ' +
+        '" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="مشاهدة ' +
         esc(b.title) +
         '"></iframe></div>' +
         serversRow +
