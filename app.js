@@ -28,8 +28,8 @@
   });
 
   /* ---------- إعدادات ---------- */
-  const TMDB_BASE = "https://api.themoviedb.org/3";
-  const TMDB_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI5ODMwNjI0M2RhNGVjNjEwMmFmM2IwODZlZDY1ZTc3OCIsIm5iZiI6MTc4Mjc0MzQ4Ni45NzEsInN1YiI6IjZhNDI4MWJlN2Q0ZDJkNGI1OGY3OTI3NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.j2W2F4ZWqv4mtun4S-A_ofuC0Fp-MBwtzCwcQj88Ax4";
+  /* مفتاح TMDB لا يعيش في الكلاينت: جميع طلباته تمر عبر /tmdb على الخادم وتُامن هناك */
+  const TMDB_BASE = "/tmdb";
   const IMG = "https://image.tmdb.org/t/p";
   const LANG = "ar";
   const SRC = "https://egybests.live";
@@ -167,7 +167,7 @@
   }
 
   async function tmdb(path, params) {
-    const url = new URL(TMDB_BASE + path);
+    const url = new URL(TMDB_BASE + path, location.origin);
     url.searchParams.set("language", LANG);
     url.searchParams.set("include_adult", "false");
     for (const [k, v] of Object.entries(params || {})) {
@@ -182,7 +182,7 @@
     let data;
     try {
       const res = await fetch(urlStr, {
-        headers: { Authorization: "Bearer " + TMDB_KEY, accept: "application/json" },
+        headers: { accept: "application/json" },
         signal: ctrl.signal,
       });
       if (!res.ok) throw new Error("TMDB error " + res.status);
@@ -390,10 +390,29 @@
           servers.push(atob(b64));
         } catch {}
       }
-      return servers.filter(Boolean);
+      return servers
+        .filter(Boolean)
+        .map((u) => ({ url: u, rank: providerRank(u) }))
+        .sort((a, b) => b.rank - a.rank)
+        .map((s) => s.url);
     } catch {
       return [];
     }
+  }
+
+  function hostnameOf(u) {
+    try {
+      return new URL(u).hostname.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  }
+
+  function providerRank(u) {
+    const h = hostnameOf(u);
+    if (/dood|do7go|mixdrop|streamtape|stape|cda/i.test(h)) return 3;
+    if (/everia|fvideo|playnixes|hgplaycdn/i.test(h)) return 2;
+    return 1;
   }
 
   async function resolveMovie(b) {
@@ -867,9 +886,12 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
                 (i === 0 ? " active" : "") +
                 '" data-src="' +
                 esc(s) +
-                '">سيرفر ' +
+                '" title="الخصائص الأصلية"' +
+                ">سيرفر " +
                 (i + 1) +
-                "</button>"
+                ' <small class="srv-host">' +
+                esc(hostnameOf(s).split(".")[0]) +
+                "</small></button>"
             )
             .join("") +
           "</div>";
@@ -886,11 +908,11 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
         '">تفاصيل الفيلم</a></div>' +
         '<div class="watch-frame"><iframe id="watchIframe" src="' +
         esc(resolved.embedUrl) +
-        '" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="مشاهدة ' +
+        '" sandbox="allow-scripts allow-same-origin allow-presentation allow-orientation-lock" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="مشاهدة ' +
         esc(b.title) +
         '"></iframe></div>' +
         serversRow +
-        '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب <a href="' +
+        '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إن أكثُرت الإعلانات في سيرفر، اختر سيرفرًا آخر من الأزرار أعلاه (Dood و Mixdrop عادة الأقل إعلانًا). <a href="' +
         esc(resolved.embedUrl) +
         '" target="_blank" rel="noopener" style="color:var(--accent)">فتح النافذة الأصلية</a></p>' +
         "</div>";

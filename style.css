@@ -485,7 +485,7 @@ img { display: block; max-width: 100%; }
   background: var(--bg-elev);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 8px 18px;
+  padding: 8px 16px;
   border-radius: 999px;
   cursor: pointer;
   font-weight: 700;
@@ -493,6 +493,8 @@ img { display: block; max-width: 100%; }
   font-size: 0.92rem;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
 }
+
+.srv-host { opacity: 0.55; font-weight: 400; margin-inline-start: 4px; font-size: 0.8rem; }
 
 .srv-btn:hover { border-color: var(--accent); transform: translateY(-1px); }
 
