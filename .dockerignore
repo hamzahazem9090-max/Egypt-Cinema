@@ -1,0 +1,9 @@
+.git
+.agents/
+.claude/
+.cursor/
+.devin/
+.gitignore
+AGENTS.md
+README.md
+CLAUDE.md

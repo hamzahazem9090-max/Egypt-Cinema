@@ -1,0 +1,22 @@
+# site is static — no build required
+
+# editor / OS
+.DS_Store
+Thumbs.db
+*.pem
+
+# local leftovers
+/.next/
+/data/
+/node_modules/
+
+# env files (keys are embedded in app.js for the browser)
+.env*
+*.local
+
+# agent/editor configs
+.agents/
+.claude/
+.cursor/
+.devin/
+CLAUDE.md
