@@ -4,8 +4,7 @@ ENV PORT=8080
 RUN apk add --no-cache apache2-utils
 
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
-COPY docker-entrypoint.d/40-htpasswd.sh /docker-entrypoint.d/40-htpasswd.sh
+COPY 40-htpasswd.sh /docker-entrypoint.d/
 RUN chmod +x /docker-entrypoint.d/40-htpasswd.sh
 
-COPY index.html style.css app.js /usr/share/nginx/html/
-COPY admin/index.html admin/app.js /usr/share/nginx/html/admin/
+COPY index.html style.css app.js dashboard.html dashboard.js /usr/share/nginx/html/

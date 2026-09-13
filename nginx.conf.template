@@ -15,11 +15,11 @@ server {
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; media-src 'self' https: blob:; connect-src 'self' https:; frame-src *; frame-ancestors 'self'; base-uri 'self'; form-action 'self'" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-    # --- لوحة الإدارة: محمية بكلمة مرور (يحددها المدير في متغيرات البيئة) ---
-    location /admin/ {
-        auth_basic "Egypt Cinema — area الادارة";
+    # --- لوحة الادارة: محمية بكلمة مرور (يحددها المدير في متغيرات البيئة) ---
+    location = /dashboard.html {
+        auth_basic "Egypt Cinema — لوحة الادارة";
         auth_basic_user_file /etc/nginx/htpasswd;
-        try_files $uri $uri/ /admin/index.html;
+        try_files $uri =404;
     }
 
     location / {
