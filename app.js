@@ -255,7 +255,16 @@
       '" data-rating="' +
       (b.voteAverage || "") +
       '">' +
+      '<a class="card-link" href="#/movie/' +
+      b.id +
+      '">' +
       post +
+      '<div class="card-body"><p class="card-title">' +
+      esc(b.title) +
+      '</p><p class="card-sub">' +
+      (b.year ? esc(b.year) : "—") +
+      "</p></div>" +
+      "</a>" +
       '<span class="card-rating">⭐ ' +
       fa(pct(b.voteAverage)) +
       "%</span>" +
@@ -266,15 +275,6 @@
       '" title="مفضلة">' +
       (fav ? "♥" : "♡") +
       "</button>" +
-      '<a href="#/movie/' +
-      b.id +
-      '"><div class="card-body">' +
-      '<p class="card-title">' +
-      esc(b.title) +
-      "</p>" +
-      '<p class="card-sub">' +
-      (b.year ? esc(b.year) : "—") +
-      "</p></div></a>" +
       progressBarHtml(b) +
       "</div>"
     );
@@ -941,5 +941,15 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
 
   window.addEventListener("hashchange", route);
   renderNavBadges();
+
+  /* زر العودة للأعلى */
+  const backTop = $("#backTop");
+  if (backTop) {
+    window.addEventListener("scroll", () => {
+      backTop.classList.toggle("show", (window.scrollY || document.documentElement.scrollTop) > 500);
+    }, { passive: true });
+    backTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+  }
+
   route();
 })();
