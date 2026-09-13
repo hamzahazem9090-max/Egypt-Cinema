@@ -373,9 +373,28 @@
     const cache = loadLinksCache();
     if (cache[b.id] && cache[b.id].embedUrl) return cache[b.id];
 
-    const q = [([b.originalTitle, b.year].join(" ").trim()), b.originalTitle];
+    /* منظِّف: يزيل علامات الترقيم والأحرف الكبيرة (بحث WP حساس للـ "!") */
+    const clean = (s) =>
+      (s || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\u0600-\u06FF ]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const variants = [];
+    const en = clean(b.originalTitle);
+    const ar = clean(b.title);
+    if (en) {
+      if (b.year) variants.push(en + " " + b.year);
+      variants.push(en);
+    }
+    if (ar && ar !== en) {
+      if (b.year) variants.push(ar + " " + b.year);
+      variants.push(ar);
+    }
+
     let best = null;
-    for (const query of q) {
+    for (const query of variants) {
       if (!query) continue;
       const results = await searchTopcinema(query);
       for (const r of results) {
@@ -887,15 +906,6 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
         toast(isNow ? "تمت الإضافة للمفضلة" : "تمت الإزالة من المفضلة");
       })
     );
-
-    /* ضغطة في أي مكان على البطاقة = فتح الفيلم (مضمونة على كل الأجهزة) */
-    document.querySelectorAll(".card").forEach((card) =>
-      card.addEventListener("click", (e) => {
-        if (e.target.closest(".card-fav")) return;
-        e.preventDefault();
-        if (card.dataset.id) location.hash = "#/movie/" + card.dataset.id;
-      })
-    );
   }
 
   /* ---------- الراوتر ---------- */
@@ -965,6 +975,15 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
   window.addEventListener("hashchange", route);
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   renderNavBadges();
+
+  /* ضغطة في أي مكان على البطاقة = فتح الفيلم (مستوى الصفحة كله) */
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest(".card");
+    if (!card) return;
+    if (e.target.closest(".card-fav")) return;
+    e.preventDefault();
+    if (card.dataset.id) location.hash = "#/movie/" + card.dataset.id;
+  });
 
   /* زر العودة للأعلى */
   const backTop = $("#backTop");
