@@ -401,7 +401,8 @@
 
   /* ---------- العرض ---------- */
   function setLoading(mode) {
-    $("#loadingTop .spinner").parentElement.style.display = mode ? "block" : "none";
+    const el = document.querySelector("#loadingTop");
+    if (el) el.style.display = mode ? "block" : "none";
   }
 
   const setActiveNav = (key) => {
@@ -920,6 +921,22 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     e.preventDefault();
     const q = $("#searchInput").value.trim();
     if (q) location.hash = "#/search?q=" + encodeURIComponent(q);
+  });
+
+  /* بحث فوري أثناء الكتابة */
+  let searchDebounce;
+  $("#searchInput").addEventListener("input", () => {
+    clearTimeout(searchDebounce);
+    const q = $("#searchInput").value.trim();
+    if (!q || q.length < 2) {
+      if (location.hash.indexOf("#/search") === 0) app.innerHTML = "";
+      return;
+    }
+    searchDebounce = setTimeout(() => {
+      if (location.hash !== "#/search?q=" + encodeURIComponent(q)) {
+        location.hash = "#/search?q=" + encodeURIComponent(q);
+      }
+    }, 350);
   });
 
   window.addEventListener("hashchange", route);
