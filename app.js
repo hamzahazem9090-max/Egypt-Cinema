@@ -143,6 +143,29 @@
   }
 
   /* ---------- TMDB ---------- */
+  const TCACHE_TTL = 30 * 60 * 1000; /* 30 دقيقة */
+
+  function tcacheRead(url) {
+    try {
+      const hit = JSON.parse(localStorage.getItem("tc_" + url));
+      if (hit && Date.now() - hit.t < TCACHE_TTL) return hit.d;
+    } catch {}
+    return null;
+  }
+
+  function tcacheWrite(url, data) {
+    try {
+      const key = "tc_" + url;
+      const entries = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf("tc_") === 0) entries.push(k);
+      }
+      if (entries.length > 60) for (const k of entries) localStorage.removeItem(k);
+      localStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data }));
+    } catch {}
+  }
+
   async function tmdb(path, params) {
     const url = new URL(TMDB_BASE + path);
     url.searchParams.set("language", LANG);
@@ -150,11 +173,25 @@
     for (const [k, v] of Object.entries(params || {})) {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     }
-    const res = await fetch(url, {
-      headers: { Authorization: "Bearer " + TMDB_KEY, accept: "application/json" },
-    });
-    if (!res.ok) throw new Error("TMDB error " + res.status);
-    return res.json();
+    const urlStr = url.toString();
+    const cached = tcacheRead(urlStr);
+    if (cached) return cached;
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    let data;
+    try {
+      const res = await fetch(urlStr, {
+        headers: { Authorization: "Bearer " + TMDB_KEY, accept: "application/json" },
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error("TMDB error " + res.status);
+      data = await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+    tcacheWrite(urlStr, data);
+    return data;
   }
 
   function brief(m) {
@@ -296,9 +333,19 @@
     url.searchParams.set("per_page", "20");
     url.searchParams.set("subtype", "post");
     try {
-      const res = await fetch(url, { headers: { accept: "application/json" } });
-      if (!res.ok) return [];
-      return await res.json();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      let json = [];
+      try {
+        const res = await fetch(url.toString(), {
+          headers: { accept: "application/json" },
+          signal: ctrl.signal,
+        });
+        if (res.ok) json = await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+      return json;
     } catch {
       return [];
     }
@@ -703,12 +750,18 @@
         toast(fav ? "تمت الإضافة للمفضلة" : "تمت الإزالة من المفضلة");
       });
 
-      document.querySelectorAll("[data-rate]").forEach((btn) =>
+document.querySelectorAll("[data-rate]").forEach((btn) =>
         btn.addEventListener("click", () => {
           const r = +btn.dataset.rate;
           const cur = getRating(b.id);
-          setRating(b, cur === r ? 0 : r);
-          location.reload();
+          const next = cur === r ? 0 : r;
+          setRating(b, next);
+          document.querySelectorAll("[data-rate]").forEach((st) =>
+            st.classList.toggle("on", next > 0 && +st.dataset.rate <= next)
+          );
+          const note = document.querySelector(".rating-note");
+          if (note) note.textContent = next ? "بتقييمك: " + fa(next) + "/5" : "قيّم الفيلم";
+          toast(next ? "تم حفظ التقييم" : "تم حذف التقييم");
         })
       );
 
