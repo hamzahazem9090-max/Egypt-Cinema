@@ -2,6 +2,31 @@
 (function () {
   "use strict";
 
+  /* كاشف أخطاء ظاهر (يساعد في معرفة أي مشكلة على الهوست) */
+  function showErr(msg) {
+    var box = document.createElement("div");
+    box.style.position = "fixed";
+    box.style.bottom = "0";
+    box.style.left = "0";
+    box.style.right = "0";
+    box.style.background = "#1a0b0d";
+    box.style.color = "#ff6b6b";
+    box.style.padding = "10px 14px";
+    box.style.zIndex = "99999";
+    box.style.fontFamily = "monospace";
+    box.style.fontSize = "12px";
+    box.style.borderTop = "2px solid #e50914";
+    box.textContent = "خطأ: " + msg;
+    document.body.appendChild(box);
+  }
+
+  window.addEventListener("error", function (ev) {
+    showErr((ev && ev.message) || "شعر بالخطأ");
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    showErr("Promise: " + ((ev && ev.reason && ev.reason.message) || ev.reason || "unknown"));
+  });
+
   /* ---------- إعدادات ---------- */
   const TMDB_BASE = "https://api.themoviedb.org/3";
   const TMDB_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI5ODMwNjI0M2RhNGVjNjEwMmFmM2IwODZlZDY1ZTc3OCIsIm5iZiI6MTc4Mjc0MzQ4Ni45NzEsInN1YiI6IjZhNDI4MWJlN2Q0ZDJkNGI1OGY3OTI3NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.j2W2F4ZWqv4mtun4S-A_ofuC0Fp-MBwtzCwcQj88Ax4";
