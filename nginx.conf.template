@@ -20,9 +20,19 @@ server {
         proxy_set_header Connection "";
     }
 
-    location ~* \.(css|js|png|jpg|jpeg|svg|ico|webp)$ {
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+
+    # JS/CSS: يعيد التحقق دائماً حتى يصلك آخر تحديث فورا
+    location ~* \.(css|js)$ {
+        add_header Cache-Control "must-revalidate, max-age=3600";
+    }
+
+    location ~* \.(png|jpg|jpeg|svg|ico|webp)$ {
         expires 7d;
-        add_header Cache-Control "public";
+        add_header Cache-Control "public, max-age=604800";
     }
 
     gzip on;
