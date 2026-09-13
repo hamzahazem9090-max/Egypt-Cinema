@@ -32,9 +32,9 @@
   const TMDB_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI5ODMwNjI0M2RhNGVjNjEwMmFmM2IwODZlZDY1ZTc3OCIsIm5iZiI6MTc4Mjc0MzQ4Ni45NzEsInN1YiI6IjZhNDI4MWJlN2Q0ZDJkNGI1OGY3OTI3NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.j2W2F4ZWqv4mtun4S-A_ofuC0Fp-MBwtzCwcQj88Ax4";
   const IMG = "https://image.tmdb.org/t/p";
   const LANG = "ar";
-  const SRC = "https://topcinema.io";
+  const SRC = "https://egybests.live";
   const LS_LIB = "tc_guest_library_v1";
-  const LS_LINKS = "tc_links_cache_v1";
+  const LS_LINKS = "tc_links_cache_v2";
 
   const $ = (sel) => document.querySelector(sel);
   const app = $("#app");
@@ -300,7 +300,7 @@
     return data.genres;
   }
 
-  /* ---------- المصدر (topcinema) ---------- */
+  /* ---------- المصدر (egybest) ---------- */
   const STOP = new Set(["the", "a", "an", "and", "for", "of", "in", "on", "to", "with", "at", "film", "movie", "series", "tv", "part"]);
 
   function normalize(s) {
@@ -328,10 +328,10 @@
   const stripHtml = (s) => s.replace(/<[^>]*>/g, "").trim();
 
   async function searchTopcinema(query) {
-    const url = new URL(SRC + "/wp-json/wp/v2/search");
+    const url = new URL(SRC + "/wp-json/wp/v2/posts");
     url.searchParams.set("search", query);
     url.searchParams.set("per_page", "20");
-    url.searchParams.set("subtype", "post");
+    url.searchParams.set("_fields", "id,title,link");
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 12000);
@@ -345,7 +345,11 @@
       } finally {
         clearTimeout(timer);
       }
-      return json;
+      return json.map((r) => ({
+        id: r.id,
+        title: stripHtml(r.title?.rendered || r.title || ""),
+        link: r.link || "",
+      }));
     } catch {
       return [];
     }
@@ -383,12 +387,12 @@
     }
 
     let resolved = null;
-    if (best && best.score >= 0.5) {
+    if (best && best.score >= 0.5 && best.r.id) {
       resolved = {
         tmdbId: b.id,
         score: best.score,
         title: best.r.title,
-        embedUrl: best.r.url + "?embedScreen=true",
+        embedUrl: SRC + "/embeds/?id=" + best.r.id,
       };
     }
 
@@ -402,7 +406,7 @@
   /* ---------- العرض ---------- */
   function setLoading(mode) {
     const el = document.querySelector("#loadingTop");
-    if (el) el.style.display = mode ? "block" : "none";
+    if (el) el.style.display = mode ? "flex" : "none";
   }
 
   const setActiveNav = (key) => {
@@ -883,9 +887,28 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
         toast(isNow ? "تمت الإضافة للمفضلة" : "تمت الإزالة من المفضلة");
       })
     );
+
+    /* ضغطة في أي مكان على البطاقة = فتح الفيلم (مضمونة على كل الأجهزة) */
+    document.querySelectorAll(".card").forEach((card) =>
+      card.addEventListener("click", (e) => {
+        if (e.target.closest(".card-fav")) return;
+        e.preventDefault();
+        if (card.dataset.id) location.hash = "#/movie/" + card.dataset.id;
+      })
+    );
   }
 
   /* ---------- الراوتر ---------- */
+  /* قفزة فورية لأعلى بدون scroll متحرك قديم */
+  function jumpTop() {
+    const html = document.documentElement;
+    html.style.scrollBehavior = "auto";
+    window.scrollTo(0, 0);
+    requestAnimationFrame(() => {
+      html.style.scrollBehavior = "";
+    });
+  }
+
   function parse(hash) {
     const h = hash || "#/";
     const [pathRaw, query] = h.slice(2).split("?");
@@ -896,7 +919,7 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
 
   async function route() {
     const { parts, params } = parse(location.hash);
-    window.scrollTo({ top: 0 });
+    jumpTop();
 
     if (!parts.length || parts[0] === "") {
       await views.home(params);
@@ -940,6 +963,7 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
   });
 
   window.addEventListener("hashchange", route);
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   renderNavBadges();
 
   /* زر العودة للأعلى */
