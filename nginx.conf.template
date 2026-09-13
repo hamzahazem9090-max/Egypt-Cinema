@@ -9,6 +9,17 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # يمرر صفحة فيلم egybest لقراءة قائمة السيرفرات (يتجاوز CORS)
+    location /proxy/ {
+        proxy_pass https://egybests.live/;
+        proxy_set_header Host egybests.live;
+        proxy_set_header User-Agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+        proxy_ssl_server_name on;
+        proxy_ssl_name egybests.live;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
     location ~* \.(css|js|png|jpg|jpeg|svg|ico|webp)$ {
         expires 7d;
         add_header Cache-Control "public";

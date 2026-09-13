@@ -369,6 +369,33 @@
     } catch {}
   }
 
+  async function getServers(postId) {
+    /* بقرأ سيرفرات التشغيل من صفحة الفيلم عبر /proxy/ (يقفها nginx للسايت الحي) */
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      let html = "";
+      try {
+        const res = await fetch("/proxy/?p=" + postId, { signal: ctrl.signal });
+        if (res.ok) html = await res.text();
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!html) return [];
+      const links = [...html.matchAll(/https:\/\/egybests\.live\/watch\/\?url=[^"']+/gi)].map((m) => m[0]);
+      const servers = [];
+      for (const link of links) {
+        try {
+          const b64 = decodeURIComponent(link.replace("https://egybests.live/watch/?url=", ""));
+          servers.push(atob(b64));
+        } catch {}
+      }
+      return servers.filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
   async function resolveMovie(b) {
     const cache = loadLinksCache();
     if (cache[b.id] && cache[b.id].embedUrl) return cache[b.id];
@@ -407,11 +434,13 @@
 
     let resolved = null;
     if (best && best.score >= 0.5 && best.r.id) {
+      const servers = await getServers(best.r.id);
       resolved = {
         tmdbId: b.id,
         score: best.score,
         title: best.r.title,
-        embedUrl: SRC + "/embeds/?id=" + best.r.id,
+        servers: servers.slice(0, 6),
+        embedUrl: servers[0] || SRC + "/embeds/?id=" + best.r.id,
       };
     }
 
@@ -805,6 +834,10 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
       const resolved = await resolveMovie(b);
 
       if (!resolved) {
+        const fileTip =
+          location.protocol === "file:"
+            ? '<p style="color:var(--muted);font-size:0.85rem;margin-top:14px">التشغيل يحتاج فتح الموقع من الرابط المباشر وليس من الملف على جهازك:<br><b>https://top-cinema-production-44b5.up.railway.app</b></p>'
+            : "";
         app.innerHTML =
           '<div class="watch"><div class="not-found">' +
           '<div class="icon">😕</div>' +
@@ -814,10 +847,32 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
           "<p>للأسف لم نجد نسخة متاحة للبث حاليًا لهذا الفيلم.<br>جرّب فيلمًا آخر من الرئيسية.</p>" +
           '<a class="btn btn-ghost" href="#/movie/' +
           b.id +
-          '">العودة لصفحة الفيلم</a></div></div>';
+          '">العودة لصفحة الفيلم</a>' +
+          fileTip +
+          "</div></div>";
         bindGlobal();
         setLoading(false);
         return;
+      }
+
+      const servers = resolved.servers && resolved.servers.length > 1 ? resolved.servers : [];
+      let serversRow = "";
+      if (servers.length) {
+        serversRow =
+          '<div class="watch-servers">' +
+          servers
+            .map(
+              (s, i) =>
+                '<button class="srv-btn' +
+                (i === 0 ? " active" : "") +
+                '" data-src="' +
+                esc(s) +
+                '">سيرفر ' +
+                (i + 1) +
+                "</button>"
+            )
+            .join("") +
+          "</div>";
       }
 
       app.innerHTML =
@@ -829,15 +884,26 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
         ')</h2><a class="see-all" href="#/movie/' +
         b.id +
         '">تفاصيل الفيلم</a></div>' +
-        '<div class="watch-frame"><iframe src="' +
+        '<div class="watch-frame"><iframe id="watchIframe" src="' +
         esc(resolved.embedUrl) +
         '" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="مشاهدة ' +
         esc(b.title) +
         '"></iframe></div>' +
+        serversRow +
         '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب <a href="' +
         esc(resolved.embedUrl) +
         '" target="_blank" rel="noopener" style="color:var(--accent)">فتح النافذة الأصلية</a></p>' +
         "</div>";
+
+      document.querySelectorAll(".srv-btn").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".srv-btn").forEach((x) => x.classList.remove("active"));
+          btn.classList.add("active");
+          const iframe = $("#watchIframe");
+          if (iframe) iframe.src = btn.dataset.src;
+        })
+      );
+
       addHistory(b);
       bindGlobal();
     } catch (e) {
