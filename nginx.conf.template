@@ -40,17 +40,6 @@ server {
         expires 7d;
     }
 
-    # --- وسيط TMDB: المفتاح هنا فقط ولا يصل للمتصفح أبدا ---
-    location /tmdb/ {
-        proxy_pass https://api.themoviedb.org/3/;
-        proxy_set_header Authorization "Bearer ${TMDB_KEY}";
-        proxy_set_header User-Agent "egypt-cinema-server";
-        proxy_ssl_server_name on;
-        proxy_ssl_name api.themoviedb.org;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-    }
-
     # --- وسيط بحث Top Cinema للروبوتات WP REST (يتجاوز CORS ويخفي اتصال المصدر) ---
     location /search/ {
         proxy_pass https://topcinema.io/;
@@ -60,6 +49,9 @@ server {
         proxy_ssl_name topcinema.io;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
+        # تمرير ترويسات الترقيم الخاصة بـ WordPress (لصفحة التصفح)
+        proxy_pass_header X-WP-Total;
+        proxy_pass_header X-WP-TotalPages;
     }
 
     gzip on;

@@ -1,4 +1,4 @@
-/* Egypt Cinema — تطبيق صفحة واحدة (SPA) بدون خادم */
+/* Egypt Cinema — تطبيق صفحة واحدة (SPA) بدون خادم — المصدر: Top Cinema */
 (function () {
   "use strict";
 
@@ -28,12 +28,9 @@
   });
 
   /* ---------- إعدادات ---------- */
-  /* مفتاح TMDB لا يعيش في الكلاينت: جميع طلباته تمر عبر /tmdb على الخادم وتُامن هناك */
-  const TMDB_BASE = "/tmdb";
-  const IMG = "https://image.tmdb.org/t/p";
-  const LANG = "ar";
-  const LS_LIB = "tc_guest_library_v1";
-  const LS_LINKS = "tc_links_cache_v3";
+  /* كل بيانات الموقع من Top Cinema عبر وسيط الخادم /search/ (يتجاوز CORS) */
+  const TC = "/search/wp-json/wp/v2";
+  const LS_LIB = "tc_guest_library_v2";
 
   const $ = (sel) => document.querySelector(sel);
   const app = $("#app");
@@ -46,6 +43,7 @@
 
   /* تنسيق عربي لعرض الأرقام */
   const fa = (n) => (n == null ? "" : n.toLocaleString("ar-EG"));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   /* ---------- مكتبة المحلي (الضيف) ---------- */
   const emptyLib = () => ({ favorites: {}, ratings: {}, history: {} });
@@ -63,15 +61,20 @@
     renderNavBadges();
   }
 
-  function snapshotOf(b) {
+  function snapshotOf(it) {
+    return { id: it.id, title: it.title, year: it.year, image: it.image || "" };
+  }
+
+  function snapshotToItem(s) {
     return {
-      tmdbId: b.id,
-      mediaType: "movie",
-      title: b.title,
-      year: b.year,
-      posterPath: b.posterPath,
-      backdropPath: b.backdropPath,
-      voteAverage: b.voteAverage,
+      id: s.id,
+      title: s.title || "فيلم",
+      year: s.year || "",
+      cats: [],
+      catNames: [],
+      image: s.image || "",
+      link: "",
+      desc: "",
     };
   }
 
@@ -79,15 +82,15 @@
     return !!loadLib().favorites[id];
   }
 
-  function toggleFav(b) {
+  function toggleFav(item) {
     const lib = loadLib();
-    if (lib.favorites[b.id]) {
-      delete lib.favorites[b.id];
+    if (lib.favorites[item.id]) {
+      delete lib.favorites[item.id];
     } else {
-      lib.favorites[b.id] = { snapshot: snapshotOf(b) };
+      lib.favorites[item.id] = { snapshot: snapshotOf(item) };
     }
     saveLib(lib);
-    return isFav(b.id);
+    return isFav(item.id);
   }
 
   function getRating(id) {
@@ -95,20 +98,20 @@
     return r ? r.rating : null;
   }
 
-  function setRating(b, rating) {
+  function setRating(item, rating) {
     const lib = loadLib();
     if (rating) {
-      lib.ratings[b.id] = { snapshot: snapshotOf(b), rating };
+      lib.ratings[item.id] = { snapshot: snapshotOf(item), rating };
     } else {
-      delete lib.ratings[b.id];
+      delete lib.ratings[item.id];
     }
     saveLib(lib);
   }
 
-  function addHistory(b, progress, duration) {
+  function addHistory(item, progress, duration) {
     const lib = loadLib();
-    lib.history[b.id] = {
-      snapshot: snapshotOf(b),
+    lib.history[item.id] = {
+      snapshot: snapshotOf(item),
       progress: progress || 0,
       duration: duration || 0,
       updatedAt: Date.now(),
@@ -116,339 +119,49 @@
     saveLib(lib);
   }
 
-  function setProgress(id, progress) {
-    const lib = loadLib();
-    if (lib.history[id]) {
-      lib.history[id].progress = progress;
-      lib.history[id].updatedAt = Date.now();
-    }
-    saveLib(lib);
-  }
-
   function renderNavBadges() {
     const lib = loadLib();
-    const favCount = Object.keys(lib.favorites).length;
-    const histCount = Object.keys(lib.history).length;
-    const rateCount = Object.keys(lib.ratings).length;
-
     const set = (sel, n) => {
       const el = document.querySelector(sel);
       if (!el) return;
       el.textContent = n > 0 ? " (" + n + ")" : "";
     };
-    set('[data-nav="favs"] .count', favCount);
-    set('[data-nav="hist"] .count', histCount);
-    set('[data-nav="rated"] .count', rateCount);
+    set('[data-nav="favs"] .count', Object.keys(lib.favorites).length);
+    set('[data-nav="hist"] .count', Object.keys(lib.history).length);
+    set('[data-nav="rated"] .count', Object.keys(lib.ratings).length);
   }
 
-  /* ---------- TMDB ---------- */
-  const TCACHE_TTL = 30 * 60 * 1000; /* 30 دقيقة */
-
-  function tcacheRead(url) {
-    try {
-      const hit = JSON.parse(localStorage.getItem("tc_" + url));
-      if (hit && Date.now() - hit.t < TCACHE_TTL) return hit.d;
-    } catch {}
-    return null;
-  }
-
-  function tcacheWrite(url, data) {
-    try {
-      const key = "tc_" + url;
-      const entries = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.indexOf("tc_") === 0) entries.push(k);
-      }
-      if (entries.length > 60) for (const k of entries) localStorage.removeItem(k);
-      localStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data }));
-    } catch {}
-  }
-
-  async function tmdb(path, params) {
-    const url = new URL(TMDB_BASE + path, location.origin);
-    url.searchParams.set("language", LANG);
-    url.searchParams.set("include_adult", "false");
+  /* ---------- جلب البيانات من Top Cinema (دائمًا تحديث بدون كاش) ---------- */
+  async function tc(resource, params) {
+    const url = new URL(TC + "/" + resource.replace(/^\//, ""), location.origin);
     for (const [k, v] of Object.entries(params || {})) {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     }
-    const urlStr = url.toString();
-    const cached = tcacheRead(urlStr);
-    if (cached) return cached;
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20000);
-    let data;
-    try {
-      const res = await fetch(urlStr, {
-        headers: { accept: "application/json" },
-        signal: ctrl.signal,
-      });
-      if (!res.ok) throw new Error("TMDB error " + res.status);
-      data = await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
-    tcacheWrite(urlStr, data);
-    return data;
-  }
-
-  function brief(m) {
-    return {
-      id: m.id,
-      title: m.title || m.original_title,
-      originalTitle: m.original_title || m.title,
-      year: m.release_date ? new Date(m.release_date).getUTCFullYear() : null,
-      overview: m.overview || "",
-      posterPath: m.poster_path,
-      backdropPath: m.backdrop_path,
-      voteAverage: m.vote_average,
-      voteCount: m.vote_count,
-genres: (m.genres || []).map((g) => g.name),
-    genreIds: m.genre_ids || [],
-    runtime: m.runtime ?? null,
-  };
-}
-
-  const pct = (score) => Math.round((score || 0) * 10);
-  const poster = (b, w) => (b.posterPath ? IMG + "/w" + w + b.posterPath : "");
-  const backdrop = (b, w) => (b.backdropPath ? IMG + "/w" + w + b.backdropPath : "");
-
-  const fmtRuntime = (min) => {
-    if (!min) return "";
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    return ((h ? h + "س" : "") + (m ? m + "د" : "")) || (h ? h + "س" : "");
-  };
-
-  /* نطاق مدة قريب من المدة الأصلية (للربط مع الاكتشاف) */
-  const rtRange = (min) => {
-    if (!min || !isFinite(min)) return "";
-    return Math.max(0, min - 15) + "," + (min + 15);
-  };
-
-  /* رابط صفحة "جميع الأفلام" مع فلاتر محددة */
-  const browseQuery = (o) => {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(o || {})) if (v !== "" && v != null && v !== undefined) qs.set(k, String(v));
-    return "#/movies" + (qs.toString() ? "?" + qs.toString() : "");
-  };
-
-  let genresById = {};
-  function seedGenreNames() {
-    loadGenres()
-      .then((gs) => {
-        (gs || []).forEach((g) => (genresById[g.id] = g.name));
-      })
-      .catch(() => {});
-  }
-  function cardGenres(b) {
-    return (b.genreIds || []).map((id) => genresById[id]).filter(Boolean).slice(0, 2);
-  }
-
-  /* تحويل snapshot مخزن إلى بيانات بطاقة */
-  function briefFromSnapshot(s) {
-    return {
-      id: s.tmdbId,
-      title: s.title,
-      originalTitle: s.title,
-      year: s.year,
-      overview: "",
-      posterPath: s.posterPath,
-      backdropPath: s.backdropPath,
-      voteAverage: s.voteAverage ?? 0,
-      voteCount: 0,
-      genres: [],
-      runtime: null,
-    };
-  }
-
-  /* ---------- كرت الفيلم (غني بالتفاصيل + طبقة تفاصيل عند الـ hover) ---------- */
-  function cardHtml(b) {
-    const fav = isFav(b.id);
-    const img = poster(b, 300);
-    const bd = backdrop(b, 500);
-    const genreIds = (b.genreIds || []).slice(0, 2);
-    const nameOf = (id) => genresById[id];
-    const rt = fmtRuntime(b.runtime);
-    const metaParts = [];
-    if (b.year) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ year: b.year }) + '">' + esc(b.year) + "</span>");
-    genreIds.forEach((id) => {
-      if (nameOf(id)) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ genres: id }) + '">' + esc(nameOf(id)) + "</span>");
-    });
-    if (rt) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ rt: rtRange(b.runtime) }) + '">' + rt + "</span>");
-    const meta = metaParts.join(" · ") || "—";
-    const synopsis = (b.overview || "").slice(0, 150);
-    const post =
-      '<div class="card-poster ' +
-      (img ? "" : "placeholder") +
-      '" style="' +
-      (img ? "background-image:url('" + img + "')" : "") +
-      '">' +
-      (!img ? esc((b.title || "؟").charAt(0)) : "") +
-      '<div class="card-detail"' +
-      (bd ? " style=\"background-image:url('" + bd + "')\"" : "") +
-      '"><div class="card-detail-mask"></div><div class="card-detail-body">' +
-      (synopsis ? '<p class="card-detail-overview">' + esc(synopsis) + "…</p>" : "") +
-      (genreIds.length
-        ? '<div class="card-detail-tags">' +
-          genreIds.map((id) => (nameOf(id) ? '<span data-goto="' + browseQuery({ genres: id }) + '">' + esc(nameOf(id)) + "</span>" : "")).join("") +
-          "</div>"
-        : "") +
-      '<span class="card-detail-play">▶ شاهد الآن</span>' +
-      "</div></div></div>";
-    return (
-      '<div class="card" data-id="' +
-      b.id +
-      '" data-title="' +
-      esc(b.title) +
-      '" data-poster="' +
-      esc(b.posterPath || "") +
-      '" data-year="' +
-      (b.year || "") +
-      '" data-rating="' +
-      (b.voteAverage || "") +
-      '">' +
-      '<a class="card-link" href="#/movie/' +
-      b.id +
-      '">' +
-      post +
-      '<div class="card-body"><p class="card-title">' +
-      esc(b.title) +
-      '</p><p class="card-meta">' +
-      meta +
-      "</p></div></a>" +
-      '<span class="card-rating">⭐ ' +
-      fa(pct(b.voteAverage)) +
-      "%</span>" +
-      '<button class="card-fav ' +
-      (fav ? "active" : "") +
-      '" data-fav="' +
-      b.id +
-      '" title="مفضلة">' +
-      (fav ? "♥" : "♡") +
-      "</button>" +
-      progressBarHtml(b) +
-      "</div>"
-    );
-  }
-
-  function progressBarHtml(b) {
-    const lib = loadLib();
-    const item = lib.history[b.id];
-    if (!item || !item.duration) return "";
-    const p = Math.min(100, Math.round(((item.progress || 0) / item.duration) * 100));
-    return '<div class="card-progress"><span style="width:' + p + '%"></span></div>';
-  }
-
-  function gridHtml(list) {
-    if (!list.length) {
-      return '<div class="empty"><div class="icon">🎬</div><p>لا توجد أفلام للعرض</p></div>';
-    }
-    return '<div class="row">' + list.map(cardHtml).join("") + "</div>";
-  }
-
-  async function loadGenres() {
-    const data = await tmdb("/genre/movie/list");
-    return data.genres;
-  }
-
-  /* ---------- المصدر (topcinema) ---------- */
-  const STOP = new Set(["the", "a", "an", "and", "for", "of", "in", "on", "to", "with", "at", "film", "movie", "series", "tv", "part"]);
-
-  function normalize(s) {
-    return s
-      .toLowerCase()
-      .replace(/[\u0600-\u06FF\ufb50-\ufdff\ufe70-\ufeff]/g, " ")
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim()
-      .replace(/\s+/g, " ");
-  }
-
-  function scoreTitle(postTitle, englishTitle, year) {
-    const normTitle = normalize(postTitle);
-    const tokens = normalize(englishTitle)
-      .split(" ")
-      .filter((t) => t.length > 1 && !STOP.has(t));
-    if (!tokens.length) return 0;
-    let hits = 0;
-    for (const token of tokens) if (normTitle.includes(token)) hits++;
-    let score = hits / tokens.length;
-    if (year && normTitle.includes(String(year))) score += 0.25;
-    return score;
-  }
-
-  const stripHtml = (s) => s.replace(/<[^>]*>/g, "").trim();
-
-  async function searchTopcinema(query) {
-    /* المحاولة مرة إضافية لأن/ بحث Top Cinema قد يتعطل مؤقتا */
-    const url = new URL("/search/wp-json/wp/v2/search", location.origin);
-    url.searchParams.set("search", query);
-    url.searchParams.set("per_page", "40");
-    url.searchParams.set("subtype", "post");
-    url.searchParams.set("_fields", "id,title,url");
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 18000);
-        let json = [];
+        let res;
         try {
-          const res = await fetch(url.toString(), {
-            headers: { accept: "application/json" },
-            signal: ctrl.signal,
-          });
-          if (res.ok) json = await res.json();
+          res = await fetch(url.toString(), { headers: { accept: "application/json" }, signal: ctrl.signal });
+          if (!res.ok) throw new Error("منبع " + res.status);
+          const json = await res.json();
+          return {
+            json,
+            total: parseInt((res.headers.get("X-WP-Total") || "0"), 10),
+            totalPages: parseInt((res.headers.get("X-WP-TotalPages") || "1"), 10),
+          };
         } finally {
           clearTimeout(timer);
         }
-        if (json && json.length) {
-          return json.map((r) => ({
-            id: r.id,
-            title: stripHtml(r.title?.rendered || r.title || ""),
-            url: r.url || r.link || "",
-          }));
-        }
-      } catch {}
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 1200));
-    }
-    return [];
-  }
-
-  function loadLinksCache() {
-    try {
-      return JSON.parse(localStorage.getItem(LS_LINKS) || "{}");
-    } catch {
-      return {};
-    }
-  }
-
-  function saveLinksCache(cache) {
-    try {
-      localStorage.setItem(LS_LINKS, JSON.stringify(cache));
-    } catch {}
-  }
-
-  /* ---------- نتائج البحث المباشرة من Top Cinema (posts بدون بيانات TMDB) ---------- */
-  const LS_WP = "tc_raw_posts_v1";
-  function loadWpPosts() {
-    try {
-      return JSON.parse(localStorage.getItem(LS_WP) || "{}");
-    } catch {
-      return {};
-    }
-  }
-  function saveWpPosts(map) {
-    try {
-      const keys = Object.keys(map);
-      if (keys.length > 300) {
-        keys.slice(0, keys.length - 300).forEach((k) => delete map[k]);
+      } catch (e) {
+        if (attempt < 2) await sleep(1000 * (attempt + 1));
       }
-      localStorage.setItem(LS_WP, JSON.stringify(map));
-    } catch {}
+    }
+    return { json: null, total: 0, totalPages: 1 };
   }
 
-  /* يستخرج السنة والعنوان الإنجليزي ونوع المحتوى من عنوان post في Top Cinema
-     مثل: "فيلم Spider-Man: Brand New Day 2026 مترجم اون لاين" */
+  /* عناوين Top Cinema مثل: "فيلم Saipan 2025 مترجم اون لاين" */
   function parseWpTitle(title) {
     const t = title || "";
     const isSeries = /مسلسل|الحلقة|موسم|episode|season/i.test(t);
@@ -462,96 +175,120 @@ genres: (m.genres || []).map((g) => g.name),
     return { isSeries, year, enPart };
   }
 
-  /* كارت بسيط لنتيجة top cinema لا يُعرف لها فيلم في TMDB */
-  function rawCardHtml(p) {
-    const meta = [p.year ? esc(p.year) : "", "Top Cinema"].filter(Boolean).join(" · ");
-    return (
-      '<div class="card card-raw" data-wp="' +
-      esc(p.id) +
-      '" data-title="' +
-      esc(p.title) +
-      '" data-year="' +
-      esc(p.year) +
-      '">' +
-      '<a class="card-link" href="#/wp/' +
-      esc(p.id) +
-      '">' +
-      '<div class="card-poster placeholder">🎬</div>' +
-      '<div class="card-body"><p class="card-title">' +
-      esc(p.title) +
-      '</p><p class="card-meta">' +
-      meta +
-      "</p></div></a></div>"
-    );
+  const stripHtml = (s) => (s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+  let catsById = {};
+  async function ensureCats() {
+    const r = await tc("categories", { per_page: 100, _fields: "id,name,count,slug" });
+    const list = (r.json && r.json.length ? r.json : []).filter((c) => c.count > 0);
+    list.forEach((c) => (catsById[c.id] = c.name));
+    return list;
   }
 
-  function hostnameOf(u) {
-    try {
-      return new URL(u).hostname.replace(/^www\./, "");
-    } catch {
-      return "";
-    }
+  /* حول كائن post من WP إلى عنصر بطاقة */
+  function itemFromPost(p, image) {
+    const title = stripHtml(p.title && (p.title.rendered || p.title));
+    const parsed = parseWpTitle(title);
+    let year = "";
+    if (p.date) year = String(new Date(p.date).getUTCFullYear());
+    if (!year) year = parsed.year;
+    const cats = (p.categories || []).filter(Boolean);
+    return {
+      id: p.id,
+      title: title || "فيلم",
+      year,
+      cats,
+      catNames: cats.map((c) => catsById[c]).filter(Boolean),
+      image: image || "",
+      link: p.link || p.url || "",
+      desc: "",
+      isSeries: parsed.isSeries,
+    };
   }
 
-  function providerRank(u) {
-    const h = hostnameOf(u);
-    if (/dood|do7go|mixdrop|streamtape|stape|cda/i.test(h)) return 3;
-    if (/everia|fvideo|playnixes|hgplaycdn/i.test(h)) return 2;
-    return 1;
-  }
-
-  async function resolveMovie(b) {
-    const cache = loadLinksCache();
-    if (cache[b.id] && cache[b.id].embedUrl) return cache[b.id];
-
-    /* منظِّف: يزيل علامات الترقيم والأحرف الكبيرة (بحث WP حساس للـ "!") */
-    const clean = (s) =>
-      (s || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\u0600-\u06FF ]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    const variants = [];
-    const en = clean(b.originalTitle);
-    const ar = clean(b.title);
-    if (en) {
-      if (b.year) variants.push(en + " " + b.year);
-      variants.push(en);
-    }
-    if (ar && ar !== en) {
-      if (b.year) variants.push(ar + " " + b.year);
-      variants.push(ar);
-    }
-
-    let best = null;
-    for (const query of variants) {
-      if (!query) continue;
-      const results = await searchTopcinema(query);
-      for (const r of results) {
-        const title = stripHtml(r.title);
-        const score = scoreTitle(title, b.originalTitle, b.year);
-        if (!best || score > best.score) best = { r: { ...r, title }, score };
+  /* يجلب صور البوسترات لمجموعة posts فأكثر (دفعة واحدة عبر include) */
+  async function attachMedia(posts) {
+    if (!posts.length) return [];
+    const ids = [...new Set(posts.map((p) => p.featured_media).filter(Boolean))];
+    const mm = {};
+    if (ids.length) {
+      for (let i = 0; i < ids.length; i += 90) {
+        const r = await tc("media", {
+          include: ids.slice(i, i + 90).join(","),
+          per_page: 100,
+          _fields: "id,source_url",
+        });
+        for (const m of r.json || []) mm[m.id] = m.source_url;
       }
-      if (best && best.score >= 0.85) break;
     }
+    return posts.map((p) => itemFromPost(p, mm[p.featured_media]));
+  }
 
-    let resolved = null;
-    if (best && best.score >= 0.5 && best.r.url) {
-      resolved = {
-        tmdbId: b.id,
-        score: best.score,
-        title: best.r.title,
-        servers: [],
-        embedUrl: best.r.url + "?embedScreen=true",
+  /* قائمة posts: بحث أو استعراض (fresh دائمًا) */
+  async function fetchPosts(o) {
+    const per_page = o.per_page || 40;
+    const page = o.page || 1;
+    let posts = [];
+    let total = 0;
+    let totalPages = 1;
+
+    if (o.search) {
+      const r = await tc("search", {
+        search: o.search,
+        per_page: Math.min(per_page, 100),
+        subtype: "post",
+        _fields: "id,title,url",
+      });
+      const found = r.json && r.json.length ? r.json : [];
+      if (!found.length) return { items: [], total: 0, totalPages: 1 };
+      const ids = found.map((x) => x.id);
+      const d = await tc("posts", {
+        include: ids.join(","),
+        per_page: 100,
+        _fields: "id,title,link,date,categories,featured_media",
+      });
+      const dm = {};
+      for (const x of d.json || []) dm[x.id] = x;
+      posts = found.map((x) => Object.assign({}, dm[x.id] || {}, { id: x.id }));
+      total = r.total;
+      totalPages = r.totalPages;
+    } else {
+      const q = {
+        per_page,
+        page,
+        _fields: "id,title,link,date,categories,featured_media",
+        orderby: "date",
+        order: o.order || "desc",
       };
+      if (o.categories && String(o.categories)) {
+        q.categories = String(o.categories)
+          .split(",")
+          .map((x) => parseInt(x, 10))
+          .filter(Boolean)
+          .join(",");
+      }
+      if (o.after) q.after = o.after;
+      if (o.before) q.before = o.before;
+      const r = await tc("posts", q);
+      posts = r.json && r.json.length ? r.json : [];
+      total = r.total;
+      totalPages = r.totalPages;
     }
+    const items = await attachMedia(posts);
+    return { items, total, totalPages };
+  }
 
-    if (resolved) {
-      cache[b.id] = resolved;
-      saveLinksCache(cache);
-    }
-    return resolved;
+  /* تفاصيل post واحد (لصفحة الفيلم + المشغل) */
+  async function fetchPost(id) {
+    const r = await tc("posts/" + id, {
+      _fields: "id,title,link,date,categories,featured_media,content",
+    });
+    const p = r.json;
+    if (!p || !p.id) return null;
+    const items = await attachMedia([p]);
+    const item = items[0];
+    item.desc = stripHtml((p.content && p.content.rendered) || "");
+    return item;
   }
 
   /* ---------- العرض ---------- */
@@ -566,6 +303,8 @@ genres: (m.genres || []).map((g) => g.name),
     });
   };
 
+  const bindGlobal = () => {};
+
   function toast(msg) {
     const t = $("#toast");
     t.classList.remove("toast-hide");
@@ -578,7 +317,6 @@ genres: (m.genres || []).map((g) => g.name),
     }, 1600);
   }
 
-  /* ظهور العناصر عند التمرير */
   function observeReveals() {
     const els = document.querySelectorAll(".reveal");
     if (!("IntersectionObserver" in window)) {
@@ -599,64 +337,159 @@ genres: (m.genres || []).map((g) => g.name),
     els.forEach((el) => io.observe(el));
   }
 
+  /* ---------- عناصر مشتركة ---------- */
+  const browseQuery = (o) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(o || {})) if (v !== "" && v != null && v !== undefined) qs.set(k, String(v));
+    return "#/movies" + (qs.toString() ? "?" + qs.toString() : "");
+  };
+
+  function progressBarHtml(item) {
+    const lib = loadLib();
+    const h = lib.history[item.id];
+    if (!h || !h.duration) return "";
+    const p = Math.min(100, Math.round(((h.progress || 0) / h.duration) * 100));
+    return '<div class="card-progress"><span style="width:' + p + '%"></span></div>';
+  }
+
+  function cardHtml(item) {
+    const id = item.id;
+    const fav = isFav(id);
+    const img = item.image || "";
+    const metaParts = [];
+    if (item.year) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ year: item.year }) + '">' + esc(item.year) + "</span>");
+    if (item.isSeries) metaParts.push('<span class="cmeta">مسلسل</span>');
+    item.catNames.forEach((nm, i) => {
+      const cid = item.cats[i];
+      if (cid) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ cat: cid }) + '">' + esc(nm) + "</span>");
+    });
+    const meta = metaParts.join(" · ") || "Top Cinema";
+    const synopsis = (item.desc || "").slice(0, 150);
+    const tags = item.catNames.length
+      ? '<div class="card-detail-tags">' +
+        item.catNames
+          .slice(0, 3)
+          .map((nm, i) => (item.cats[i] ? '<span data-goto="' + browseQuery({ cat: item.cats[i] }) + '">' + esc(nm) + "</span>" : ""))
+          .join("") +
+        "</div>"
+      : "";
+    const post =
+      '<div class="card-poster ' +
+      (img ? "" : "placeholder") +
+      '" style="' +
+      (img ? "background-image:url('" + esc(img) + "')" : "") +
+      '">' +
+      (!img ? "🎬" : "") +
+      '<div class="card-detail"><div class="card-detail-mask"></div><div class="card-detail-body">' +
+      (synopsis ? '<p class="card-detail-overview">' + esc(synopsis) + "…</p>" : "") +
+      tags +
+      '<span class="card-detail-play">▶ شاهد الآن</span>' +
+      "</div></div></div>";
+    return (
+      '<div class="card" data-id="' +
+      id +
+      '" data-title="' +
+      esc(item.title) +
+      '" data-poster="' +
+      esc(item.image || "") +
+      '" data-year="' +
+      esc(item.year || "") +
+      '">' +
+      '<a class="card-link" href="#/movie/' +
+      id +
+      '">' +
+      post +
+      '<div class="card-body"><p class="card-title">' +
+      esc(item.title) +
+      '</p><p class="card-meta">' +
+      meta +
+      "</p></div></a>" +
+      '<button class="card-fav ' +
+      (fav ? "active" : "") +
+      '" data-fav="' +
+      id +
+      '" title="مفضلة">' +
+      (fav ? "♥" : "♡") +
+      "</button>" +
+      progressBarHtml(item) +
+      "</div>"
+    );
+  }
+
+  function gridHtml(list) {
+    if (!list || !list.length) {
+      return '<div class="empty"><div class="icon">🎬</div><p>لا يوجد محتوى للعرض</p></div>';
+    }
+    return '<div class="row">' + list.map(cardHtml).join("") + "</div>";
+  }
+
+  function sectionHead(title, link) {
+    return (
+      '<section class="section reveal"><div class="section-head"><h2>' +
+      title +
+      "</h2>" +
+      (link ? '<a class="see-all" href="' + link + '">عرض الكل</a>' : "") +
+      "</div></section>"
+    );
+  }
+
   /* ---------- الصفحات ---------- */
   const views = {};
+
+  const FILM_CATS = [3, 4, 5];
+  const SERIES_CATS = [7, 8, 9];
 
   views.home = async () => {
     setActiveNav("home");
     setLoading(true);
     try {
-      const [trending, now, top, upcoming] = await Promise.all([
-        tmdb("/trending/movie/week", { page: 1 }),
-        tmdb("/movie/now_playing", { page: 1 }),
-        tmdb("/movie/top_rated", { page: 1 }),
-        tmdb("/movie/upcoming", { page: 1 }),
+      const [films, series] = await Promise.all([
+        fetchPosts({ categories: FILM_CATS, per_page: 30 }),
+        fetchPosts({ categories: SERIES_CATS, per_page: 30 }),
       ]);
+      const cats = await ensureCats();
 
-      const slides = trending.results.slice(0, 5).map(brief);
+      const slides = films.items.slice(0, 5);
       let idx = 0;
 
       const heroHtml = () => {
-        const b = slides[idx];
-        if (!b) return "";
-        const bg = backdrop(b, 1280);
+        const it = slides[idx];
+        if (!it) return "";
         return (
           '<section class="hero">' +
           '<div class="hero-backdrop" style="' +
-          (bg ? "background-image:url('" + bg + "')" : "") +
+          (it.image ? "background-image:url('" + esc(it.image) + "')" : "") +
           '"></div>' +
           '<div class="hero-overlay"></div>' +
           (slides.length > 1
             ? '<button class="hero-nav prev" data-hprev>‹</button><button class="hero-nav next" data-hnext>›</button>'
             : "") +
           '<div class="hero-content">' +
-          (poster(b, 300)
-            ? '<img class="hero-poster" src="' + poster(b, 300) + '" alt="">'
-            : "") +
+          (it.image ? '<img class="hero-poster" src="' + esc(it.image) + '" alt="">' : "") +
           '<div class="hero-body">' +
-          '<h1>' +
-          esc(b.title) +
+          "<h1>" +
+          esc(it.title) +
           "</h1>" +
           '<div class="hero-meta">' +
-          (b.year ? '<a class="chip" href="' + browseQuery({ year: b.year }) + '">' + esc(b.year) + "</a>" : "") +
-          (b.genreIds || [])
+          (it.year ? '<a class="chip" href="' + browseQuery({ year: it.year }) + '">' + esc(it.year) + "</a>" : "") +
+          it.catNames
             .slice(0, 2)
-            .map((id) => (genresById[id] ? '<a class="chip" href="' + browseQuery({ genres: id }) + '">' + esc(genresById[id]) + "</a>" : ""))
+            .map((nm, i) =>
+              it.cats[i]
+                ? '<a class="chip" href="' + browseQuery({ cat: it.cats[i] }) + '">' + esc(nm) + "</a>"
+                : ""
+            )
             .join("") +
-          '<a class="chip rate" href="' +
-          browseQuery({ vote: pct(b.voteAverage) }) +
-          '">⭐ ' +
-          fa(pct(b.voteAverage)) +
-          "%</a></div>" +
-          (b.overview
-            ? '<p class="hero-overview">' + esc(b.overview) + "</p>"
+          "</div>" +
+          (it.desc
+            ? '<p class="hero-overview">' + esc(it.desc.slice(0, 180)) + "…</p>"
             : "") +
           '<div class="hero-actions">' +
           '<a class="btn btn-primary" href="#/watch/' +
-          b.id +
-          '">▶ شاهد الفيلم</a>' +
+          it.id +
+          '">▶ شاهد الآن</a>' +
           '<a class="btn btn-ghost" href="#/movie/' +
-          b.id +
+          it.id +
           '">التفاصيل</a>' +
           "</div></div></div>" +
           '<div class="hero-dots">' +
@@ -670,9 +503,6 @@ genres: (m.genres || []).map((g) => g.name),
       let hero = heroHtml();
       const renderHero = () => {
         $("#heroSlot").innerHTML = hero;
-        bindHero();
-      };
-      const bindHero = () => {
         document.querySelectorAll("[data-hdot]").forEach((d) =>
           d.addEventListener("click", () => {
             idx = +d.dataset.hdot;
@@ -692,27 +522,28 @@ genres: (m.genres || []).map((g) => g.name),
         });
       };
 
-      const rows = [
-        { title: "🔥 رائج هذا الأسبوع", list: trending.results.slice(0, 12).map(brief) },
-        { title: "🎬 فيلم السينما الآن", list: now.results.slice(0, 12).map(brief) },
-        { title: "🏆 الأعلى تقييمًا", list: top.results.slice(0, 12).map(brief) },
-        { title: "🗓 قريبًا في السينما", list: upcoming.results.slice(0, 12).map(brief) },
-      ];
+      const filmCats = cats.filter((c) => FILM_CATS.includes(c.id));
+      const seriesCats = cats.filter((c) => SERIES_CATS.includes(c.id));
+      const pills = (list, cf) =>
+        list
+          .map((c) => '<a class="filter-chip" href="' + browseQuery({ cat: c.id }) + '">' + esc(c.name) + "</a>")
+          .join("");
 
       app.innerHTML =
         '<div id="heroSlot"></div>' +
-        rows
-          .map(
-            (r, i) =>
-              '<section class="section reveal"><div class="section-head"><h2>' +
-              r.title +
-              '</h2><a class="see-all" href="#/movies">عرض الكل</a></div>' +
-              gridHtml(r.list) +
-              "</section>"
-          )
-          .join("");
+        '<section class="section reveal"><div class="section-head"><h2>🎬 أحدث الأفلام</h2>' +
+        '<a class="see-all" href="' + browseQuery({ cat: FILM_CATS.join(",") }) + '">عرض الكل</a></div>' +
+        (filmCats.length ? '<div class="filter-chips">' + pills(filmCats) + "</div>" : "") +
+        gridHtml(films.items.slice(1, 25)) +
+        "</section>" +
+        '<section class="section reveal"><div class="section-head"><h2>📺 أحدث المسلسلات</h2>' +
+        '<a class="see-all" href="' + browseQuery({ cat: SERIES_CATS.join(",") }) + '">عرض الكل</a></div>' +
+        (seriesCats.length ? '<div class="filter-chips">' + pills(seriesCats) + "</div>" : "") +
+        gridHtml(series.items.slice(0, 25)) +
+        "</section>";
       renderHero();
       bindGlobal();
+      observeReveals();
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر تحميل البيانات: ' + esc(e.message) + "</div>";
     }
@@ -723,48 +554,36 @@ genres: (m.genres || []).map((g) => g.name),
     setActiveNav("browse");
     setLoading(true);
     try {
-      const genres = await loadGenres();
-      genres.forEach((g) => (genresById[g.id] = g.name));
-      const sortBy = params.sortBy || "popularity.desc";
-      const withGenres = params.genres || "";
+      const cats = await ensureCats();
+      const catParam = params.cat || FILM_CATS.join(",");
       const year = params.year || "";
-      const vote = params.vote ? Math.max(0, Math.min(100, +params.vote)) : "";
-      const rt = params.rt || "";
-      const country = params.country || "";
-      const lang = params.lang || "";
-      const cert = params.cert || "";
+      const sort = params.sort || "desc";
 
-      const state = { page: 0, acc: [], totalPages: 1, totalResults: 0, loading: false };
+      const state = { page: 0, acc: [], totalResults: 0, totalPages: 1, loading: false };
+
+      const catIds = () => catParam.split(",").map((x) => parseInt(x, 10)).filter(Boolean);
 
       const fetchPage = (p) => {
-        const rtMin = rt ? Math.max(0, +rt.split(",")[0] || 0) : "";
-        const rtMax = rt ? (+rt.split(",")[1] || "") : "";
-        return tmdb("/discover/movie", {
-          page: p,
-          sort_by: sortBy,
-          with_genres: withGenres,
-          primary_release_year: year,
-          "vote_count.gte": 50,
-          "vote_average.gte": vote ? (vote / 10).toFixed(1) : "",
-          "with_runtime.gte": rtMin || "",
-          "with_runtime.lte": rtMax || "",
-          "with_origin_country": country,
-          "with_original_language": lang,
-          "certification_country": cert ? "US" : "",
-          certification: cert,
-        });
+        const q = { page: p, per_page: 30, order: sort };
+        const ids = catIds();
+        if (ids.length && catParam) q.categories = ids.join(",");
+        if (year) {
+          q.after = year + "-01-01T00:00:01";
+          q.before = String(+year + 1) + "-01-01T00:00:00";
+        }
+        return fetchPosts(q);
       };
 
       const append = (res) => {
-        state.totalPages = res.total_pages || 1;
-        state.totalResults = res.total_results || 0;
-        (res.results || []).forEach((m) => state.acc.push(brief(m)));
+        state.totalPages = res.totalPages || 1;
+        state.totalResults = res.total || 0;
+        res.items.forEach((it) => state.acc.push(it));
       };
 
       const moreSlot = () => {
         if (state.page >= state.totalPages) {
           return state.acc.length
-            ? '<p class="more-end">عرض ' + fa(state.acc.length) + " فيلم — وصلت للنهاية</p>"
+            ? '<p class="more-end">عرض ' + fa(state.acc.length) + " عنصر — وصلت للنهاية</p>"
             : "";
         }
         return (
@@ -779,61 +598,26 @@ genres: (m.genres || []).map((g) => g.name),
         );
       };
 
-      const gOpts =
-        '<option value="">كل الأنواع</option>' +
-        genres.map((g) => '<option value="' + g.id + '"' + (withGenres == g.id ? " selected" : "") + ">" + esc(g.name) + "</option>").join("");
+      const cOpts =
+        '<option value="">كل الأقسام</option>' +
+        cats
+          .filter((c) => FILM_CATS.includes(c.id) || SERIES_CATS.includes(c.id))
+          .map((c) => {
+            const sel = catParam.split(",").map(Number).includes(c.id) ? " selected" : "";
+            return '<option value="' + c.id + '"' + sel + ">" + esc(c.name) + " (" + fa(c.count) + ")</option>";
+          })
+          .join("");
+      const catSelected = catParam.split(",").map(Number).filter((x) => cats.some((c) => c.id === x));
 
-      const yOpts = ["", ...Array.from({ length: 25 }, (_, i) => String(new Date().getUTCFullYear() - i))]
+      const yOpts = ["", ...Array.from({ length: 22 }, (_, i) => String(new Date().getUTCFullYear() - i))]
         .map((y) => '<option value="' + y + '"' + (year == y ? " selected" : "") + ">" + (y || "كل السنين") + "</option>")
         .join("");
 
-      const sOpts = [
-        ["popularity.desc", "الأكثر رواجًا"],
-        ["vote_average.desc", "الأعلى تقييمًا"],
-        ["primary_release_date.desc", "الأحدث"],
-        ["primary_release_date.asc", "الأقدم"],
-        ["original_title.asc", "الترتيب الأبجدي"],
-      ]
-        .map(([v, l]) => '<option value="' + v + '"' + (sortBy == v ? " selected" : "") + ">" + l + "</option>")
-        .join("");
-
-      const rOpts = ["60", "70", "80", "90"]
-        .map((v) => '<option value="' + v + '"' + (String(vote) == v ? " selected" : "") + ">التقييم ≥ " + fa(+v) + "%</option>")
-        .join("");
-
-      const rtRaw = [
-        ["", "كل المدد"],
-        ["0,89", "أقل من 90 دقيقة"],
-        ["90,120", "من 90 إلى 120"],
-        ["121,150", "من 121 إلى 150"],
-        ["151,180", "من 151 إلى 180"],
-        ["181,9999", "أكثر من 180"],
-      ];
-      let rtOpts = rtRaw.map(([v, l]) => '<option value="' + v + '"' + (rt == v ? " selected" : "") + ">" + l + "</option>").join("");
-      if (rt && !rtRaw.some(([v]) => v === rt)) {
-        rtOpts =
-          '<option value="' + esc(rt) + '" selected>' +
-          "المدة " +
-          fa(+rt.split(",")[0]) +
-          "–" +
-          fa(+rt.split(",")[1]) +
-          " دقيقة</option>" +
-          rtOpts;
-      }
-
-      const restOf = (excluding) => {
-        const o = { sortBy, genres: withGenres, year, vote, rt, country, lang, cert };
-        delete o[excluding];
-        return o;
-      };
       const chips = [];
-      if (year) chips.push(["year", "سنة " + esc(year), restOf("year")]);
-      if (withGenres && genresById[withGenres]) chips.push(["genres", esc(genresById[withGenres]) + " ✕", restOf("genres")]);
-      if (vote) chips.push(["vote", "التقييم ≥ " + fa(+vote) + "% ✕", restOf("vote")]);
-      if (rt) chips.push(["rt", "المدة " + fa(+rt.split(",")[0]) + "–" + fa(+rt.split(",")[1]) + " دقيقة ✕", restOf("rt")]);
-      if (country) chips.push(["country", String(country).toUpperCase() + " ✕", restOf("country")]);
-      if (lang) chips.push(["lang", String(lang) + " ✕", restOf("lang")]);
-      if (cert) chips.push(["cert", "تصنيف " + esc(cert) + " ✕", restOf("cert")]);
+      catSelected.forEach((cid) => {
+        if (catsById[cid]) chips.push(["cat", (catsById[cid].includes("مسلسل") ? "📺 " : "🎬 ") + esc(catsById[cid]) + " ✕", { ...params, cat: "", year }]);
+      });
+      if (year) chips.push(["year", "سنة " + esc(year) + " ✕", { ...params, year: "", cat: catParam }]);
       const chipsRow = chips.length
         ? '<div class="filter-chips">' +
           chips.map(([, label, rest]) => '<a class="filter-chip" href="' + browseQuery(rest) + '" title="إزالة الفلتر">' + label + "</a>").join("") +
@@ -843,23 +627,15 @@ genres: (m.genres || []).map((g) => g.name),
 
       const render = () => {
         app.innerHTML =
-          '<h1 class="page-title" style="margin:24px 0 0">تصفح جميع الأفلام</h1>' +
+          '<h1 class="page-title" style="margin:24px 0 0">تصفح المحتوى</h1>' +
           '<form class="filters" id="filtersForm">' +
-          '<label>الترتيب <select name="sortBy">' +
-          sOpts +
-          "</select></label>" +
-          '<label>النوع <select name="genres">' +
-          gOpts +
+          '<label>القسم <select name="cat">' +
+          cOpts +
           "</select></label>" +
           '<label>السنة <select name="year">' +
           yOpts +
           "</select></label>" +
-          '<label>التقييم <select name="vote"><option value="">كل التقييمات</option>' +
-          rOpts +
-          "</select></label>" +
-          '<label>المدة <select name="rt">' +
-          rtOpts +
-          "</select></label>" +
+          '<label>الترتيب <select name="sort"><option value="desc" ' + (sort !== "asc" ? "selected" : "") + ">الأحدث</option><option value=\"asc\" " + (sort === "asc" ? "selected" : "") + ">الأقدم</option></select></label>" +
           "</form>" +
           chipsRow +
           '<div id="browseResults">' +
@@ -870,7 +646,21 @@ genres: (m.genres || []).map((g) => g.name),
         bindGlobal();
         const btn = $("#loadMoreBtn");
         if (btn) btn.addEventListener("click", loadMore);
+        observeReveals();
       };
+
+      function bindFilters() {
+        const form = $("#filtersForm");
+        if (!form) return;
+        form.addEventListener("change", () => {
+          const fd = new FormData(form);
+          const qs = new URLSearchParams();
+          if (fd.get("cat")) qs.set("cat", fd.get("cat"));
+          if (fd.get("year")) qs.set("year", fd.get("year"));
+          if (fd.get("sort")) qs.set("sort", fd.get("sort"));
+          location.hash = "#/movies" + (qs.toString() ? "?" + qs.toString() : "");
+        });
+      }
 
       async function loadMore() {
         if (state.loading) return;
@@ -882,7 +672,7 @@ genres: (m.genres || []).map((g) => g.name),
         }
         try {
           const res = await fetchPage(state.page + 1);
-          state.page = res.page || state.page + 1;
+          state.page = state.page + 1;
           append(res);
           const slot = $("#browseResults");
           if (slot) slot.innerHTML = gridHtml(state.acc);
@@ -891,6 +681,7 @@ genres: (m.genres || []).map((g) => g.name),
           bindGlobal();
           const nb = $("#loadMoreBtn");
           if (nb) nb.addEventListener("click", loadMore);
+          observeReveals();
         } catch (e) {
           if (btn) {
             btn.disabled = false;
@@ -902,9 +693,9 @@ genres: (m.genres || []).map((g) => g.name),
       }
 
       const [r1, r2] = await Promise.all([fetchPage(1), fetchPage(2)]);
+      state.page = 2;
       append(r1);
       append(r2);
-      state.page = 2;
       render();
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر التحميل: ' + esc(e.message) + "</div>";
@@ -912,24 +703,126 @@ genres: (m.genres || []).map((g) => g.name),
     setLoading(false);
   };
 
-  function bindFilters() {
-    const form = $("#filtersForm");
-    if (!form) return;
-    form.addEventListener("change", () => {
-      const fd = new FormData(form);
-      const qs = new URLSearchParams();
-      if (fd.get("sortBy") && fd.get("sortBy") !== "popularity.desc") qs.set("sortBy", fd.get("sortBy"));
-      if (fd.get("genres")) qs.set("genres", fd.get("genres"));
-      if (fd.get("year")) qs.set("year", fd.get("year"));
-      if (fd.get("vote")) qs.set("vote", fd.get("vote"));
-      if (fd.get("rt")) qs.set("rt", fd.get("rt"));
-      const p = parse(location.hash).params;
-      if (p.country) qs.set("country", p.country);
-      if (p.lang) qs.set("lang", p.lang);
-      if (p.cert) qs.set("cert", p.cert);
-      location.hash = "#/movies?" + qs.toString();
-    });
-  }
+  views.movie = async (params) => {
+    setActiveNav("");
+    setLoading(true);
+    try {
+      const item = await fetchPost(params.id);
+      if (!item) throw new Error("لم نجد هذا العنصر");
+
+      const rating = getRating(item.id);
+      let stars = "";
+      for (let i = 1; i <= 5; i++) {
+        stars += '<button data-rate="' + i + '" class="' + (rating && i <= rating ? "on" : "") + '">★</button>';
+      }
+
+      let related = [];
+      if (item.cats.length) {
+        try {
+          const r = await fetchPosts({ categories: [item.cats[0]], per_page: 9 });
+          related = r.items.filter((x) => x.id !== item.id).slice(0, 8);
+        } catch {}
+      }
+
+      app.innerHTML =
+        '<section class="movie"><div class="movie-hero">' +
+        '<div class="movie-backdrop" style="' +
+        (item.image ? "background-image:url('" + esc(item.image) + "')" : "") +
+        '"></div>' +
+        '<div class="movie-grid">' +
+        (item.image ? '<img class="movie-poster" src="' + esc(item.image) + '" alt="' + esc(item.title) + '">' : "") +
+        '<div class="movie-info">' +
+        "<h1>" +
+        esc(item.title) +
+        "</h1>" +
+        '<div class="movie-badges">' +
+        (item.year ? '<a class="badge" href="' + browseQuery({ year: item.year }) + '">' + esc(item.year) + "</a>" : "") +
+        item.catNames
+          .map((nm, i) => (item.cats[i] ? '<a class="badge genre" href="' + browseQuery({ cat: item.cats[i] }) + '">' + esc(nm) + "</a>" : ""))
+          .join("") +
+        (item.isSeries ? '<span class="badge">مسلسل/حلقة</span>' : "") +
+        "</div>" +
+        '<div class="movie-actions">' +
+        '<a class="btn btn-primary" href="#/watch/' +
+        item.id +
+        '">▶ شاهد الآن</a>' +
+        '<button class="btn btn-ghost" id="favBtn">' +
+        (isFav(item.id) ? "♥ إزالة من المفضلة" : "♡ أضف للمفضلة") +
+        "</button>" +
+        '<div class="stars">' +
+        stars +
+        "</div>" +
+        '<span class="rating-note">' +
+        (rating ? "بصّام: " + fa(rating) + "/5" : "قيّم الفيلم") +
+        "</span></div>" +
+        (item.desc ? '<p class="overview">' + esc(item.desc) + "</p>" : "") +
+        "</div></div></div></section>" +
+        (related.length
+          ? '<section class="section reveal"><div class="section-head"><h2>الأحدث في نفس القسم</h2></div>' +
+            gridHtml(related) +
+            "</section>"
+          : "");
+
+      $("#favBtn").addEventListener("click", () => {
+        const nowFav = toggleFav(item);
+        $("#favBtn").textContent = nowFav ? "♥ إزالة من المفضلة" : "♡ أضف للمفضلة";
+        toast(nowFav ? "أضيف للمفضلة" : "أُزيلت من المفضلة");
+      });
+      document.querySelectorAll(".stars button").forEach((b) =>
+        b.addEventListener("click", () => {
+          const v = +b.dataset.rate;
+          setRating(item, rating === v ? null : v);
+          document.querySelectorAll(".stars button").forEach((x) => x.classList.toggle("on", +x.dataset.rate <= (rating === v ? 0 : v)));
+          $(".rating-note").textContent = rating === v ? "قيّم الفيلم" : "بصّام: " + fa(v) + "/5";
+        })
+      );
+      bindGlobal();
+      observeReveals();
+    } catch (e) {
+      app.innerHTML = '<div class="error-box">تعذر التحميل: ' + esc(e.message) + "</div>";
+    }
+    setLoading(false);
+  };
+
+  views.watch = async (params) => {
+    setActiveNav("");
+    setLoading(true);
+    try {
+      const item = await fetchPost(params.id);
+      if (!item || !item.link) {
+        app.innerHTML =
+          '<div class="not-found"><div class="icon">😕</div><h2>' +
+          esc(item && item.title ? item.title : "") +
+          "</h2><p>للأسف لم نجد نسخة متاحة للبث حاليًا.<br>جرّب عنصرًا آخر من الرئيسية.</p>" +
+          '<a class="btn btn-ghost" href="#/">الرئيسية</a></div>';
+        bindGlobal();
+        setLoading(false);
+        return;
+      }
+      app.innerHTML =
+        '<div class="watch">' +
+        '<div class="section-head"><h2>▶ ' +
+        esc(item.title) +
+        (item.year ? " (" + esc(item.year) + ")" : "") +
+        '</h2><a class="see-all" href="#/movie/' +
+        item.id +
+        '">تفاصيل</a></div>' +
+        '<div class="watch-frame"><iframe id="watchIframe" src="' +
+        esc(item.link) +
+        '?embedScreen=true" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="' +
+        esc(item.title) +
+        '"></iframe></div>' +
+        '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب فتح <a href="' +
+        esc(item.link) +
+        '?embedScreen=true" target="_blank" rel="noopener" style="color:var(--accent)">النافذة الأصلية</a></p>' +
+        "</div>";
+      addHistory(item);
+      bindGlobal();
+    } catch (e) {
+      app.innerHTML = '<div class="error-box">تعذر التشغيل: ' + esc(e.message) + "</div>";
+    }
+    setLoading(false);
+  };
 
   views.search = async (params) => {
     setActiveNav("");
@@ -942,311 +835,21 @@ genres: (m.genres || []).map((g) => g.name),
         setLoading(false);
         return;
       }
-
-      /* نجّيب نتائج Top Cinema + بحث TMDB في الخلفية */
-      const [posts, tmdbRes] = await Promise.all([
-        searchTopcinema(q),
-        tmdb("/search/movie", { query: q, page: 1 }).catch(() => ({ results: [] })),
-      ]);
-
-      /* فهرس مطابقة TMDB (normalized title + سنة → movie object) */
-      const tmdbIdx = new Map();
-      for (const m of tmdbRes.results || []) {
-        const en = normalize(m.original_title || m.title);
-        const y = m.release_date ? new Date(m.release_date).getUTCFullYear() : null;
-        tmdbIdx.set(en, m);
-        if (m.title && normalize(m.title) !== en) tmdbIdx.set(normalize(m.title), m);
-        if (y) tmdbIdx.set(en + " " + y, m);
-      }
-
-      const cards = [];
-      const wpStore = loadWpPosts();
-      let targetedCalls = 0;
-
-      for (const post of posts) {
-        const { year, enPart, isSeries } = parseWpTitle(post.title);
-        const enN = normalize(enPart);
-        let m = (year && tmdbIdx.get(enN + " " + year)) || tmdbIdx.get(enN) || null;
-
-        /* بحث TMDB مركزي لأفلام غير معروفة (مقيد بعدد المكالمات عشان لا يبطي) */
-        if (!m && enN && !isSeries && targetedCalls < 8 && enN.length >= 3) {
-          targetedCalls++;
-          try {
-            const r = await tmdb("/search/movie", { query: enPart, page: 1 });
-            const cand = (r.results || [])[0];
-            if (cand && scoreTitle(cand.original_title || cand.title, enN, year || undefined) >= 0.7) {
-              m = cand;
-            }
-          } catch {}
-        }
-
-        if (m) {
-          cards.push(cardHtml(brief(m)));
-        } else {
-          const wp = { id: String(post.id), title: post.title, url: post.url, year: year || "" };
-          wpStore[wp.id] = wp;
-          cards.push(rawCardHtml(wp));
-        }
-      }
-      saveWpPosts(wpStore);
-
+      const res = await fetchPosts({ search: q, per_page: 40 });
+      const items = res.items;
       const head =
         '<div class="search-head"><h2>نتائج البحث عن: <span style="color:var(--accent)">' +
         esc(q) +
         "</span></h2>" +
         '<p class="search-note">كما تظهر في Top Cinema</p></div>';
-      app.innerHTML = cards.length
-        ? head + '<div class="row">' + cards.join("") + "</div>"
+      app.innerHTML = items.length
+        ? head + '<div class="row">' + items.map(cardHtml).join("") + "</div>"
         : head + '<div class="empty"><div class="icon">🎬</div><p>لا توجد نتائج في مصدرنا الحالي لهذه الكلمة</p></div>';
       bindGlobal();
+      observeReveals();
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر البحث: ' + esc(e.message) + "</div>";
     }
-    setLoading(false);
-  };
-
-  views.movie = async (params) => {
-    setActiveNav("");
-    setLoading(true);
-    try {
-      const data = await tmdb("/movie/" + params.id, { append_to_response: "videos,credits,similar" });
-      const b = brief(data);
-      const bg = backdrop(b, 1280);
-      const yearBadge = b.year;
-      const runtime = data.runtime ? data.runtime + " دقيقة" : "";
-      const cert = (data.release_dates?.results || []).find((r) => r.iso_3166_1 === "US");
-      const certVal = cert?.release_dates.find((d) => d.certification)?.certification;
-      const trailer = (data.videos?.results || []).find((v) => v.site === "YouTube" && v.type === "Trailer");
-      const director = (data.credits?.crew || []).find((c) => c.job === "Director");
-      const rating = getRating(b.id);
-
-      const cast = (data.credits?.cast || []).slice(0, 8).map((c) => c.name).join("، ") || "—";
-      const similar = (data.similar?.results || []).slice(0, 12).map(brief);
-
-      let stars = "";
-      for (let i = 1; i <= 5; i++) {
-        stars += '<button data-rate="' + i + '" class="' + (rating && i <= rating ? "on" : "") + '">★</button>';
-      }
-
-      app.innerHTML =
-        '<section class="movie"><div class="movie-hero">' +
-        '<div class="movie-backdrop" style="' +
-        (bg ? "background-image:url('" + bg + "')" : "") +
-        '"></div>' +
-        '<div class="movie-grid">' +
-        (poster(b, 500)
-          ? '<img class="movie-poster" src="' + poster(b, 500) + '" alt="' + esc(b.title) + '">'
-          : "") +
-        '<div class="movie-info">' +
-        "<h1>" +
-        esc(b.title) +
-        "</h1>" +
-        '<div class="movie-badges">' +
-        (yearBadge ? '<a class="badge" href="' + browseQuery({ year: b.year }) + '">' + esc(yearBadge) + "</a>" : "") +
-        (certVal ? '<a class="badge" href="' + browseQuery({ cert: certVal }) + '">' + esc(certVal) + "</a>" : "") +
-        (runtime ? '<a class="badge" href="' + browseQuery({ rt: rtRange(data.runtime) }) + '">' + esc(runtime) + "</a>" : "") +
-        '<a class="badge" href="' +
-        browseQuery({ vote: pct(b.voteAverage) }) +
-        '">⭐ ' +
-        fa(pct(b.voteAverage)) +
-        "% (" +
-        fa(b.voteCount) +
-        " تقييم)</a>" +
-        (data.genres || [])
-          .map((g) => '<a class="badge genre" href="' + browseQuery({ genres: g.id }) + '">' + esc(g.name) + "</a>")
-          .join("") +
-        "</div>" +
-        '<div class="movie-actions">' +
-        '<a class="btn btn-primary" href="#/watch/' +
-        b.id +
-        '">▶ شاهد الفيلم</a>' +
-        '<button class="btn btn-ghost" id="favBtn">' +
-        (isFav(b.id) ? "♥ إزالة من المفضلة" : "♡ أضف للمفضلة") +
-        "</button>" +
-        '<div class="stars">' +
-        stars +
-        "</div>" +
-        '<span class="rating-note">' +
-        (rating ? "بصّام: " + fa(rating) + "/5" : "قيّم الفيلم") +
-        "</span></div>" +
-        (b.overview ? '<p class="overview">' + esc(b.overview) + "</p>" : "") +
-        '<div class="meta-list">' +
-        (director ? "<div><strong>المخرج:</strong> " + esc(director.name) + "</div>" : "") +
-        "<div><strong>النجوم:</strong> " +
-        esc(cast) +
-        "</div>" +
-        (data.production_countries?.length
-          ? "<div><strong>البلد:</strong> " +
-            data.production_countries
-              .map((c) => '<a class="meta-link" href="' + browseQuery({ country: c.iso_3166_1 }) + '">' + esc(c.name) + "</a>")
-              .join("، ") +
-            "</div>"
-          : "") +
-        (data.spoken_languages?.length
-          ? "<div><strong>اللغات:</strong> " +
-            data.spoken_languages
-              .slice(0, 3)
-              .map((l) => '<a class="meta-link" href="' + browseQuery({ lang: l.iso_639_1 }) + '">' + esc(l.name || l.iso_639_1) + "</a>")
-              .join("، ") +
-            "</div>"
-          : "") +
-        (trailer ? '<div><a href="https://www.youtube.com/watch?v=' + trailer.key + '" target="_blank" rel="noopener" style="color:var(--accent)">▶ مشاهدة الإعلان الرسمي</a></div>' : "") +
-        "</div></div></div></div></section>" +
-        '<section class="section reveal"><div class="section-head"><h2>أفلام مشابهة</h2></div>' +
-        gridHtml(similar) +
-        "</section>";
-
-      $("#favBtn").addEventListener("click", () => {
-        const fav = toggleFav(b);
-        $("#favBtn").textContent = fav ? "♥ إزالة من المفضلة" : "♡ أضف للمفضلة";
-        toast(fav ? "تمت الإضافة للمفضلة" : "تمت الإزالة من المفضلة");
-      });
-
-document.querySelectorAll("[data-rate]").forEach((btn) =>
-        btn.addEventListener("click", () => {
-          const r = +btn.dataset.rate;
-          const cur = getRating(b.id);
-          const next = cur === r ? 0 : r;
-          setRating(b, next);
-          document.querySelectorAll("[data-rate]").forEach((st) =>
-            st.classList.toggle("on", next > 0 && +st.dataset.rate <= next)
-          );
-          const note = document.querySelector(".rating-note");
-          if (note) note.textContent = next ? "بتقييمك: " + fa(next) + "/5" : "قيّم الفيلم";
-          toast(next ? "تم حفظ التقييم" : "تم حذف التقييم");
-        })
-      );
-
-      bindGlobal();
-    } catch (e) {
-      app.innerHTML = '<div class="error-box">تعذر عرض الفيلم: ' + esc(e.message) + "</div>";
-    }
-    setLoading(false);
-  };
-
-  views.watch = async (params) => {
-    setActiveNav("");
-    setLoading(true);
-    try {
-      const data = await tmdb("/movie/" + params.id);
-      const b = brief(data);
-      const resolved = await resolveMovie(b);
-
-      if (!resolved) {
-        const fileTip =
-          location.protocol === "file:"
-            ? '<p style="color:var(--muted);font-size:0.85rem;margin-top:14px">التشغيل يحتاج فتح الموقع من الرابط المباشر وليس من الملف على جهازك:<br><b>https://top-cinema-production-44b5.up.railway.app</b></p>'
-            : "";
-        app.innerHTML =
-          '<div class="watch"><div class="not-found">' +
-          '<div class="icon">😕</div>' +
-          "<h2>" +
-          esc(b.title) +
-          "</h2>" +
-          "<p>للأسف لم نجد نسخة متاحة للبث حاليًا لهذا الفيلم.<br>جرّب فيلمًا آخر من الرئيسية.</p>" +
-          '<a class="btn btn-ghost" href="#/movie/' +
-          b.id +
-          '">العودة لصفحة الفيلم</a>' +
-          fileTip +
-          "</div></div>";
-        bindGlobal();
-        setLoading(false);
-        return;
-      }
-
-      const servers = resolved.servers && resolved.servers.length > 1 ? resolved.servers : [];
-      let serversRow = "";
-      if (servers.length) {
-        serversRow =
-          '<div class="watch-servers">' +
-          servers
-            .map(
-              (s, i) =>
-                '<button class="srv-btn' +
-                (i === 0 ? " active" : "") +
-                '" data-src="' +
-                esc(s) +
-                '" title="الخصائص الأصلية"' +
-                ">سيرفر " +
-                (i + 1) +
-                ' <small class="srv-host">' +
-                esc(hostnameOf(s).split(".")[0]) +
-                "</small></button>"
-            )
-            .join("") +
-          "</div>";
-      }
-
-      app.innerHTML =
-        '<div class="watch">' +
-        '<div class="section-head"><h2>▶ ' +
-        esc(b.title) +
-        " (" +
-        (b.year || "—") +
-        ')</h2><a class="see-all" href="#/movie/' +
-        b.id +
-        '">تفاصيل الفيلم</a></div>' +
-        '<div class="watch-frame"><iframe id="watchIframe" src="' +
-        esc(resolved.embedUrl) +
-        '" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="مشاهدة ' +
-        esc(b.title) +
-        '"></iframe></div>' +
-        serversRow +
-        (servers.length
-          ? '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إن أكثُرت الإعلانات في سيرفر، اختر سيرفرًا آخر من الأزرار أعلاه.</p>'
-          : '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب فتح <a href="' +
-            esc(resolved.embedUrl) +
-            '" target="_blank" rel="noopener" style="color:var(--accent)">النافذة الأصلية</a></p>') +
-        "</div>";
-
-      document.querySelectorAll(".srv-btn").forEach((btn) =>
-        btn.addEventListener("click", () => {
-          document.querySelectorAll(".srv-btn").forEach((x) => x.classList.remove("active"));
-          btn.classList.add("active");
-          const iframe = $("#watchIframe");
-          if (iframe) iframe.src = btn.dataset.src;
-        })
-      );
-
-      addHistory(b);
-      bindGlobal();
-    } catch (e) {
-      app.innerHTML = '<div class="error-box">تعذر التشغيل: ' + esc(e.message) + "</div>";
-    }
-    setLoading(false);
-  };
-
-  /* صفحة مشاهدة مباشرة لنتيجة بحث Top Cinema (بدون بيانات TMDB) */
-  views.watchWp = async (params) => {
-    setActiveNav("");
-    setLoading(true);
-    const posts = loadWpPosts();
-    const p = posts[params.id];
-    if (!p || !p.url) {
-      app.innerHTML =
-        '<div class="not-found"><div class="icon">🎬</div><p>الرابط قديم أو غير متاح — ابحث عن الفيلم من جديد.</p>' +
-        '<a class="btn btn-ghost" href="#/">الرئيسية</a></div>';
-      setLoading(false);
-      return;
-    }
-    app.innerHTML =
-      '<div class="watch">' +
-      '<div class="section-head"><h2>▶ ' +
-      esc(p.title) +
-      (p.year ? " (" + esc(p.year) + ")" : "") +
-      '</h2><a class="see-all" href="' +
-      esc(p.url) +
-      '" target="_blank" rel="noopener">فتح في Top Cinema</a></div>' +
-      '<div class="watch-frame"><iframe id="watchIframe" src="' +
-      esc(p.url) +
-      '?embedScreen=true" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="' +
-      esc(p.title) +
-      '"></iframe></div>' +
-      '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب فتح <a href="' +
-      esc(p.url) +
-      '?embedScreen=true" target="_blank" rel="noopener" style="color:var(--accent)">النافذة الأصلية</a></p>' +
-      "</div>";
-    bindGlobal();
     setLoading(false);
   };
 
@@ -1254,75 +857,40 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     setActiveNav(params.type);
     setLoading(true);
     const lib = loadLib();
-    let list = [];
-    let title = "";
-
+    let items = [];
+    let emptyMsg = "";
     if (params.type === "favorites") {
-      title = "المفضلة";
-      list = Object.values(lib.favorites).map((i) => briefFromSnapshot(i.snapshot));
+      items = Object.values(lib.favorites).map((x) => snapshotToItem(x.snapshot));
+      emptyMsg = "لا توجد أفلام في المفضلة بعد";
     } else if (params.type === "history") {
-      title = "آخر المشاهدة";
-      list = Object.values(lib.history)
+      items = Object.values(lib.history)
         .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-        .map((i) => briefFromSnapshot(i.snapshot));
+        .map((x) => snapshotToItem(x.snapshot));
+      emptyMsg = "لم تشاهد شيئًا بعد";
     } else if (params.type === "rated") {
-      title = "قيمت عليها";
-      list = Object.values(lib.ratings).map((i) => briefFromSnapshot(i.snapshot));
+      items = Object.values(lib.ratings)
+        .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+        .map((x) => snapshotToItem(x.snapshot));
+      emptyMsg = "لم تقيّم أي فيلم بعد";
+    } else {
+      items = [];
     }
-
+    const titles = {
+      favorites: "♥ المفضلة",
+      history: "🕒 آخر المشاهدة",
+      rated: "⭐ قيمت عليها",
+    };
     app.innerHTML =
-      '<h1 class="page-title" style="margin:24px 0 16px">' +
-      title +
+      '<h1 class="page-title" style="margin:24px 0 0">' +
+      (titles[params.type] || "مكتبتي") +
       "</h1>" +
-      (list.length
-        ? gridHtml(list)
-        : '<div class="empty"><div class="icon">🍿</div><p>القائمة فاضية حاليًا.<br>تصفح الأفلام من <a href="#/" style="color:var(--accent)">الرئيسية</a> وابدأ أضف المفضلة!</p></div>');
+      (items.length ? gridHtml(items) : '<div class="empty"><div class="icon">📂</div><p>' + esc(emptyMsg) + "</p></div>");
     bindGlobal();
+    observeReveals();
     setLoading(false);
   };
 
-  /* ---------- ربط عام (الأزرار داخل البطاقات) ---------- */
-  function bindGlobal() {
-    observeReveals();
-    document.querySelectorAll("[data-fav]").forEach((btn) =>
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const card = btn.closest(".card");
-        const id = +btn.dataset.fav;
-        const b = {
-          id,
-          title: card?.dataset.title || "فيلم",
-          year: card?.dataset.year ? +card.dataset.year : null,
-          posterPath: card?.dataset.poster || null,
-          voteAverage: card?.dataset.rating ? +card.dataset.rating : null,
-        };
-        const lib = loadLib();
-        const isNow = !lib.favorites[id];
-        if (isNow) {
-          lib.favorites[id] = { snapshot: snapshotOf(b) };
-        } else {
-          delete lib.favorites[id];
-        }
-        saveLib(lib);
-        btn.classList.toggle("active", isNow);
-        btn.textContent = isNow ? "♥" : "♡";
-        toast(isNow ? "تمت الإضافة للمفضلة" : "تمت الإزالة من المفضلة");
-      })
-    );
-  }
-
   /* ---------- الراوتر ---------- */
-  /* قفزة فورية لأعلى بدون scroll متحرك قديم */
-  function jumpTop() {
-    const html = document.documentElement;
-    html.style.scrollBehavior = "auto";
-    window.scrollTo(0, 0);
-    requestAnimationFrame(() => {
-      html.style.scrollBehavior = "";
-    });
-  }
-
   function parse(hash) {
     const h = hash || "#/";
     const [pathRaw, query] = h.slice(2).split("?");
@@ -1331,10 +899,13 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     return { parts, params };
   }
 
+  function jumpTop() {
+    window.scrollTo({ top: 0 });
+  }
+
   async function route() {
     const { parts, params } = parse(location.hash);
     jumpTop();
-
     if (!parts.length || parts[0] === "") {
       await views.home(params);
     } else if (parts[0] === "movies") {
@@ -1346,7 +917,7 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     } else if (parts[0] === "watch" && parts[1]) {
       await views.watch({ id: parts[1] });
     } else if (parts[0] === "wp" && parts[1]) {
-      await views.watchWp({ id: decodeURIComponent(parts[1]) });
+      await views.watch({ id: parts[1] });
     } else if (parts[0] === "library" && parts[1]) {
       await views.library({ type: parts[1] });
     } else {
@@ -1362,7 +933,6 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     if (q) location.hash = "#/search?q=" + encodeURIComponent(q);
   });
 
-  /* بحث فوري أثناء الكتابة */
   let searchDebounce;
   $("#searchInput").addEventListener("input", () => {
     clearTimeout(searchDebounce);
@@ -1381,9 +951,8 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
   window.addEventListener("hashchange", route);
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   renderNavBadges();
-  seedGenreNames();
 
-  /* ضغطة في أي مكان على "المعلومات القابلة للنقر" = فتح قائمة أفلام بنفس التصنيف */
+  /* ضغطة في أي مكان على "المعلومات القابلة للنقر" = فتح قائمة بنفس التصنيف */
   document.addEventListener("click", (e) => {
     const goto = e.target.closest("[data-goto]");
     if (goto) {
@@ -1396,7 +965,24 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     if (e.target.closest(".card-fav")) return;
     e.preventDefault();
     if (card.dataset.id) location.hash = "#/movie/" + card.dataset.id;
-    else if (card.dataset.wp) location.hash = "#/wp/" + card.dataset.wp;
+  });
+
+  document.addEventListener("click", (e) => {
+    const fav = e.target.closest(".card-fav");
+    if (!fav) return;
+    const card = fav.closest(".card");
+    if (!card) return;
+    e.preventDefault();
+    const item = {
+      id: fav.dataset.fav,
+      title: card.dataset.title || "فيلم",
+      year: card.dataset.year || "",
+      image: card.dataset.poster || "",
+    };
+    const nowFav = toggleFav(item);
+    fav.classList.toggle("active", nowFav);
+    fav.textContent = nowFav ? "♥" : "♡";
+    toast(nowFav ? "أضيف للمفضلة" : "أُزيلت من المفضلة");
   });
 
   /* زر العودة للأعلى + تظليل الهيدر عند التمرير */
