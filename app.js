@@ -222,6 +222,19 @@ genres: (m.genres || []).map((g) => g.name),
     return ((h ? h + "س" : "") + (m ? m + "د" : "")) || (h ? h + "س" : "");
   };
 
+  /* نطاق مدة قريب من المدة الأصلية (للربط مع الاكتشاف) */
+  const rtRange = (min) => {
+    if (!min || !isFinite(min)) return "";
+    return Math.max(0, min - 15) + "," + (min + 15);
+  };
+
+  /* رابط صفحة "جميع الأفلام" مع فلاتر محددة */
+  const browseQuery = (o) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(o || {})) if (v !== "" && v != null && v !== undefined) qs.set(k, String(v));
+    return "#/movies" + (qs.toString() ? "?" + qs.toString() : "");
+  };
+
   let genresById = {};
   function seedGenreNames() {
     loadGenres()
@@ -256,9 +269,16 @@ genres: (m.genres || []).map((g) => g.name),
     const fav = isFav(b.id);
     const img = poster(b, 300);
     const bd = backdrop(b, 500);
-    const genres = cardGenres(b);
+    const genreIds = (b.genreIds || []).slice(0, 2);
+    const nameOf = (id) => genresById[id];
     const rt = fmtRuntime(b.runtime);
-    const meta = [b.year ? esc(b.year) : "", ...genres.map(esc), rt].filter(Boolean).join(" · ") || "—";
+    const metaParts = [];
+    if (b.year) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ year: b.year }) + '">' + esc(b.year) + "</span>");
+    genreIds.forEach((id) => {
+      if (nameOf(id)) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ genres: id }) + '">' + esc(nameOf(id)) + "</span>");
+    });
+    if (rt) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ rt: rtRange(b.runtime) }) + '">' + rt + "</span>");
+    const meta = metaParts.join(" · ") || "—";
     const synopsis = (b.overview || "").slice(0, 150);
     const post =
       '<div class="card-poster ' +
@@ -271,7 +291,11 @@ genres: (m.genres || []).map((g) => g.name),
       (bd ? " style=\"background-image:url('" + bd + "')\"" : "") +
       '"><div class="card-detail-mask"></div><div class="card-detail-body">' +
       (synopsis ? '<p class="card-detail-overview">' + esc(synopsis) + "…</p>" : "") +
-      (genres.length ? '<div class="card-detail-tags">' + genres.map((g) => "<span>" + esc(g) + "</span>").join("") + "</div>" : "") +
+      (genreIds.length
+        ? '<div class="card-detail-tags">' +
+          genreIds.map((id) => (nameOf(id) ? '<span data-goto="' + browseQuery({ genres: id }) + '">' + esc(nameOf(id)) + "</span>" : "")).join("") +
+          "</div>"
+        : "") +
       '<span class="card-detail-play">▶ شاهد الآن</span>' +
       "</div></div></div>";
     return (
@@ -584,11 +608,16 @@ genres: (m.genres || []).map((g) => g.name),
           esc(b.title) +
           "</h1>" +
           '<div class="hero-meta">' +
-          (b.year ? '<span class="chip">' + esc(b.year) + "</span>" : "") +
-          (cardGenres(b).length ? '<span class="chip">' + cardGenres(b).map(esc).join(" · ") + "</span>" : "") +
-          '<span class="chip rate">⭐ ' +
+          (b.year ? '<a class="chip" href="' + browseQuery({ year: b.year }) + '">' + esc(b.year) + "</a>" : "") +
+          (b.genreIds || [])
+            .slice(0, 2)
+            .map((id) => (genresById[id] ? '<a class="chip" href="' + browseQuery({ genres: id }) + '">' + esc(genresById[id]) + "</a>" : ""))
+            .join("") +
+          '<a class="chip rate" href="' +
+          browseQuery({ vote: pct(b.voteAverage) }) +
+          '">⭐ ' +
           fa(pct(b.voteAverage)) +
-          "%</span></div>" +
+          "%</a></div>" +
           (b.overview
             ? '<p class="hero-overview">' + esc(b.overview) + "</p>"
             : "") +
@@ -669,17 +698,32 @@ genres: (m.genres || []).map((g) => g.name),
       const sortBy = params.sortBy || "popularity.desc";
       const withGenres = params.genres || "";
       const year = params.year || "";
+      const vote = params.vote ? Math.max(0, Math.min(100, +params.vote)) : "";
+      const rt = params.rt || "";
+      const country = params.country || "";
+      const lang = params.lang || "";
+      const cert = params.cert || "";
 
       const state = { page: 0, acc: [], totalPages: 1, totalResults: 0, loading: false };
 
-      const fetchPage = (p) =>
-        tmdb("/discover/movie", {
+      const fetchPage = (p) => {
+        const rtMin = rt ? Math.max(0, +rt.split(",")[0] || 0) : "";
+        const rtMax = rt ? (+rt.split(",")[1] || "") : "";
+        return tmdb("/discover/movie", {
           page: p,
           sort_by: sortBy,
           with_genres: withGenres,
           primary_release_year: year,
           "vote_count.gte": 50,
+          "vote_average.gte": vote ? (vote / 10).toFixed(1) : "",
+          "with_runtime.gte": rtMin || "",
+          "with_runtime.lte": rtMax || "",
+          "with_origin_country": country,
+          "with_original_language": lang,
+          "certification_country": cert ? "US" : "",
+          certification: cert,
         });
+      };
 
       const append = (res) => {
         state.totalPages = res.total_pages || 1;
@@ -723,6 +767,50 @@ genres: (m.genres || []).map((g) => g.name),
         .map(([v, l]) => '<option value="' + v + '"' + (sortBy == v ? " selected" : "") + ">" + l + "</option>")
         .join("");
 
+      const rOpts = ["60", "70", "80", "90"]
+        .map((v) => '<option value="' + v + '"' + (String(vote) == v ? " selected" : "") + ">التقييم ≥ " + fa(+v) + "%</option>")
+        .join("");
+
+      const rtRaw = [
+        ["", "كل المدد"],
+        ["0,89", "أقل من 90 دقيقة"],
+        ["90,120", "من 90 إلى 120"],
+        ["121,150", "من 121 إلى 150"],
+        ["151,180", "من 151 إلى 180"],
+        ["181,9999", "أكثر من 180"],
+      ];
+      let rtOpts = rtRaw.map(([v, l]) => '<option value="' + v + '"' + (rt == v ? " selected" : "") + ">" + l + "</option>").join("");
+      if (rt && !rtRaw.some(([v]) => v === rt)) {
+        rtOpts =
+          '<option value="' + esc(rt) + '" selected>' +
+          "المدة " +
+          fa(+rt.split(",")[0]) +
+          "–" +
+          fa(+rt.split(",")[1]) +
+          " دقيقة</option>" +
+          rtOpts;
+      }
+
+      const restOf = (excluding) => {
+        const o = { sortBy, genres: withGenres, year, vote, rt, country, lang, cert };
+        delete o[excluding];
+        return o;
+      };
+      const chips = [];
+      if (year) chips.push(["year", "سنة " + esc(year), restOf("year")]);
+      if (withGenres && genresById[withGenres]) chips.push(["genres", esc(genresById[withGenres]) + " ✕", restOf("genres")]);
+      if (vote) chips.push(["vote", "التقييم ≥ " + fa(+vote) + "% ✕", restOf("vote")]);
+      if (rt) chips.push(["rt", "المدة " + fa(+rt.split(",")[0]) + "–" + fa(+rt.split(",")[1]) + " دقيقة ✕", restOf("rt")]);
+      if (country) chips.push(["country", String(country).toUpperCase() + " ✕", restOf("country")]);
+      if (lang) chips.push(["lang", String(lang) + " ✕", restOf("lang")]);
+      if (cert) chips.push(["cert", "تصنيف " + esc(cert) + " ✕", restOf("cert")]);
+      const chipsRow = chips.length
+        ? '<div class="filter-chips">' +
+          chips.map(([, label, rest]) => '<a class="filter-chip" href="' + browseQuery(rest) + '" title="إزالة الفلتر">' + label + "</a>").join("") +
+          '<a class="filter-chip clear" href="#/movies">مسح الكل ✕</a>' +
+          "</div>"
+        : "";
+
       const render = () => {
         app.innerHTML =
           '<h1 class="page-title" style="margin:24px 0 0">تصفح جميع الأفلام</h1>' +
@@ -736,7 +824,14 @@ genres: (m.genres || []).map((g) => g.name),
           '<label>السنة <select name="year">' +
           yOpts +
           "</select></label>" +
+          '<label>التقييم <select name="vote"><option value="">كل التقييمات</option>' +
+          rOpts +
+          "</select></label>" +
+          '<label>المدة <select name="rt">' +
+          rtOpts +
+          "</select></label>" +
           "</form>" +
+          chipsRow +
           '<div id="browseResults">' +
           gridHtml(state.acc) +
           "</div>" +
@@ -815,6 +910,12 @@ genres: (m.genres || []).map((g) => g.name),
       if (fd.get("sortBy") && fd.get("sortBy") !== "popularity.desc") qs.set("sortBy", fd.get("sortBy"));
       if (fd.get("genres")) qs.set("genres", fd.get("genres"));
       if (fd.get("year")) qs.set("year", fd.get("year"));
+      if (fd.get("vote")) qs.set("vote", fd.get("vote"));
+      if (fd.get("rt")) qs.set("rt", fd.get("rt"));
+      const p = parse(location.hash).params;
+      if (p.country) qs.set("country", p.country);
+      if (p.lang) qs.set("lang", p.lang);
+      if (p.cert) qs.set("cert", p.cert);
       location.hash = "#/movies?" + qs.toString();
     });
   }
@@ -851,7 +952,6 @@ genres: (m.genres || []).map((g) => g.name),
       const data = await tmdb("/movie/" + params.id, { append_to_response: "videos,credits,similar" });
       const b = brief(data);
       const bg = backdrop(b, 1280);
-      const genres = (data.genres || []).map((g) => g.name);
       const yearBadge = b.year;
       const runtime = data.runtime ? data.runtime + " دقيقة" : "";
       const cert = (data.release_dates?.results || []).find((r) => r.iso_3166_1 === "US");
@@ -882,16 +982,18 @@ genres: (m.genres || []).map((g) => g.name),
         esc(b.title) +
         "</h1>" +
         '<div class="movie-badges">' +
-        (yearBadge ? '<span class="badge">' + esc(yearBadge) + "</span>" : "") +
-        (certVal ? '<span class="badge">' + esc(certVal) + "</span>" : "") +
-        (runtime ? '<span class="badge">' + esc(runtime) + "</span>" : "") +
-        '<span class="badge">⭐ ' +
+        (yearBadge ? '<a class="badge" href="' + browseQuery({ year: b.year }) + '">' + esc(yearBadge) + "</a>" : "") +
+        (certVal ? '<a class="badge" href="' + browseQuery({ cert: certVal }) + '">' + esc(certVal) + "</a>" : "") +
+        (runtime ? '<a class="badge" href="' + browseQuery({ rt: rtRange(data.runtime) }) + '">' + esc(runtime) + "</a>" : "") +
+        '<a class="badge" href="' +
+        browseQuery({ vote: pct(b.voteAverage) }) +
+        '">⭐ ' +
         fa(pct(b.voteAverage)) +
         "% (" +
         fa(b.voteCount) +
-        " تقييم)</span>" +
-        genres
-          .map((g) => '<span class="badge genre">' + esc(g) + "</span>")
+        " تقييم)</a>" +
+        (data.genres || [])
+          .map((g) => '<a class="badge genre" href="' + browseQuery({ genres: g.id }) + '">' + esc(g.name) + "</a>")
           .join("") +
         "</div>" +
         '<div class="movie-actions">' +
@@ -913,8 +1015,21 @@ genres: (m.genres || []).map((g) => g.name),
         "<div><strong>النجوم:</strong> " +
         esc(cast) +
         "</div>" +
-        (data.production_countries?.length ? "<div><strong>البلد:</strong> " + esc(data.production_countries.map((c) => c.name).join("، ")) + "</div>" : "") +
-        (data.spoken_languages?.length ? "<div><strong>اللغات:</strong> " + esc(data.spoken_languages.map((l) => l.name).filter(Boolean).slice(0, 3).join("، ")) + "</div>" : "") +
+        (data.production_countries?.length
+          ? "<div><strong>البلد:</strong> " +
+            data.production_countries
+              .map((c) => '<a class="meta-link" href="' + browseQuery({ country: c.iso_3166_1 }) + '">' + esc(c.name) + "</a>")
+              .join("، ") +
+            "</div>"
+          : "") +
+        (data.spoken_languages?.length
+          ? "<div><strong>اللغات:</strong> " +
+            data.spoken_languages
+              .slice(0, 3)
+              .map((l) => '<a class="meta-link" href="' + browseQuery({ lang: l.iso_639_1 }) + '">' + esc(l.name || l.iso_639_1) + "</a>")
+              .join("، ") +
+            "</div>"
+          : "") +
         (trailer ? '<div><a href="https://www.youtube.com/watch?v=' + trailer.key + '" target="_blank" rel="noopener" style="color:var(--accent)">▶ مشاهدة الإعلان الرسمي</a></div>' : "") +
         "</div></div></div></div></section>" +
         '<section class="section reveal"><div class="section-head"><h2>أفلام مشابهة</h2></div>' +
@@ -1170,8 +1285,14 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
   renderNavBadges();
   seedGenreNames();
 
-  /* ضغطة في أي مكان على البطاقة = فتح الفيلم (مستوى الصفحة كله) */
+  /* ضغطة في أي مكان على "المعلومات القابلة للنقر" = فتح قائمة أفلام بنفس التصنيف */
   document.addEventListener("click", (e) => {
+    const goto = e.target.closest("[data-goto]");
+    if (goto) {
+      e.preventDefault();
+      if (goto.dataset.goto) location.hash = goto.dataset.goto;
+      return;
+    }
     const card = e.target.closest(".card");
     if (!card) return;
     if (e.target.closest(".card-fav")) return;
