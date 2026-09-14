@@ -381,33 +381,37 @@ genres: (m.genres || []).map((g) => g.name),
   const stripHtml = (s) => s.replace(/<[^>]*>/g, "").trim();
 
   async function searchTopcinema(query) {
-    /* يمر عبر /search/ على الخادم (nginx) حتى لا يعتمد على CORS من المصدر */
+    /* المحاولة مرة إضافية لأن/ بحث Top Cinema قد يتعطل مؤقتا */
     const url = new URL("/search/wp-json/wp/v2/search", location.origin);
     url.searchParams.set("search", query);
-    url.searchParams.set("per_page", "20");
+    url.searchParams.set("per_page", "40");
     url.searchParams.set("subtype", "post");
     url.searchParams.set("_fields", "id,title,url");
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 12000);
-      let json = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = await fetch(url.toString(), {
-          headers: { accept: "application/json" },
-          signal: ctrl.signal,
-        });
-        if (res.ok) json = await res.json();
-      } finally {
-        clearTimeout(timer);
-      }
-      return json.map((r) => ({
-        id: r.id,
-        title: stripHtml(r.title?.rendered || r.title || ""),
-        url: r.url || r.link || "",
-      }));
-    } catch {
-      return [];
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 18000);
+        let json = [];
+        try {
+          const res = await fetch(url.toString(), {
+            headers: { accept: "application/json" },
+            signal: ctrl.signal,
+          });
+          if (res.ok) json = await res.json();
+        } finally {
+          clearTimeout(timer);
+        }
+        if (json && json.length) {
+          return json.map((r) => ({
+            id: r.id,
+            title: stripHtml(r.title?.rendered || r.title || ""),
+            url: r.url || r.link || "",
+          }));
+        }
+      } catch {}
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 1200));
     }
+    return [];
   }
 
   function loadLinksCache() {
@@ -422,6 +426,63 @@ genres: (m.genres || []).map((g) => g.name),
     try {
       localStorage.setItem(LS_LINKS, JSON.stringify(cache));
     } catch {}
+  }
+
+  /* ---------- نتائج البحث المباشرة من Top Cinema (posts بدون بيانات TMDB) ---------- */
+  const LS_WP = "tc_raw_posts_v1";
+  function loadWpPosts() {
+    try {
+      return JSON.parse(localStorage.getItem(LS_WP) || "{}");
+    } catch {
+      return {};
+    }
+  }
+  function saveWpPosts(map) {
+    try {
+      const keys = Object.keys(map);
+      if (keys.length > 300) {
+        keys.slice(0, keys.length - 300).forEach((k) => delete map[k]);
+      }
+      localStorage.setItem(LS_WP, JSON.stringify(map));
+    } catch {}
+  }
+
+  /* يستخرج السنة والعنوان الإنجليزي ونوع المحتوى من عنوان post في Top Cinema
+     مثل: "فيلم Spider-Man: Brand New Day 2026 مترجم اون لاين" */
+  function parseWpTitle(title) {
+    const t = title || "";
+    const isSeries = /مسلسل|الحلقة|موسم|episode|season/i.test(t);
+    const year = (t.match(/(?:19|20)\d{2}/) || [])[0] || "";
+    const enPart = t
+      .replace(/[\u0600-\u06FF\ufb50-\ufdff\ufe70-\ufeff]/g, " ")
+      .replace(/[^A-Za-z0-9 .'&:!()\-]+/g, " ")
+      .replace(/\b(?:19|20)\d{2}\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return { isSeries, year, enPart };
+  }
+
+  /* كارت بسيط لنتيجة top cinema لا يُعرف لها فيلم في TMDB */
+  function rawCardHtml(p) {
+    const meta = [p.year ? esc(p.year) : "", "Top Cinema"].filter(Boolean).join(" · ");
+    return (
+      '<div class="card card-raw" data-wp="' +
+      esc(p.id) +
+      '" data-title="' +
+      esc(p.title) +
+      '" data-year="' +
+      esc(p.year) +
+      '">' +
+      '<a class="card-link" href="#/wp/' +
+      esc(p.id) +
+      '">' +
+      '<div class="card-poster placeholder">🎬</div>' +
+      '<div class="card-body"><p class="card-title">' +
+      esc(p.title) +
+      '</p><p class="card-meta">' +
+      meta +
+      "</p></div></a></div>"
+    );
   }
 
   function hostnameOf(u) {
@@ -851,25 +912,6 @@ genres: (m.genres || []).map((g) => g.name),
     setLoading(false);
   };
 
-  function paginationHtml(page, total, params) {
-    if (total <= 1) return "";
-    const qs = new URLSearchParams();
-    for (const k of ["sortBy", "genres", "year"]) if (params[k]) qs.set(k, params[k]);
-    const prev = page > 1 ? "#/movies?" + qs.toString() + (qs.toString() ? "&" : "") + "page=" + (page - 1) : null;
-    const next = page < total ? "#/movies?" + qs.toString() + (qs.toString() ? "&" : "") + "page=" + (page + 1) : null;
-    return (
-      '<div class="pagination">' +
-      (prev ? '<a href="' + prev + '">→ السابق</a>' : '<button disabled>→ السابق</button>') +
-      '<span class="page">صفحة ' +
-      fa(page) +
-      " من " +
-      fa(total) +
-      "</span>" +
-      (next ? '<a href="' + next + '">التالي ←</a>' : '<button disabled>التالي ←</button>') +
-      "</div>"
-    );
-  }
-
   function bindFilters() {
     const form = $("#filtersForm");
     if (!form) return;
@@ -900,13 +942,62 @@ genres: (m.genres || []).map((g) => g.name),
         setLoading(false);
         return;
       }
-      const data = await tmdb("/search/movie", { query: q, page: params.page || 1 });
-      app.innerHTML =
+
+      /* نجّيب نتائج Top Cinema + بحث TMDB في الخلفية */
+      const [posts, tmdbRes] = await Promise.all([
+        searchTopcinema(q),
+        tmdb("/search/movie", { query: q, page: 1 }).catch(() => ({ results: [] })),
+      ]);
+
+      /* فهرس مطابقة TMDB (normalized title + سنة → movie object) */
+      const tmdbIdx = new Map();
+      for (const m of tmdbRes.results || []) {
+        const en = normalize(m.original_title || m.title);
+        const y = m.release_date ? new Date(m.release_date).getUTCFullYear() : null;
+        tmdbIdx.set(en, m);
+        if (m.title && normalize(m.title) !== en) tmdbIdx.set(normalize(m.title), m);
+        if (y) tmdbIdx.set(en + " " + y, m);
+      }
+
+      const cards = [];
+      const wpStore = loadWpPosts();
+      let targetedCalls = 0;
+
+      for (const post of posts) {
+        const { year, enPart, isSeries } = parseWpTitle(post.title);
+        const enN = normalize(enPart);
+        let m = (year && tmdbIdx.get(enN + " " + year)) || tmdbIdx.get(enN) || null;
+
+        /* بحث TMDB مركزي لأفلام غير معروفة (مقيد بعدد المكالمات عشان لا يبطي) */
+        if (!m && enN && !isSeries && targetedCalls < 8 && enN.length >= 3) {
+          targetedCalls++;
+          try {
+            const r = await tmdb("/search/movie", { query: enPart, page: 1 });
+            const cand = (r.results || [])[0];
+            if (cand && scoreTitle(cand.original_title || cand.title, enN, year || undefined) >= 0.7) {
+              m = cand;
+            }
+          } catch {}
+        }
+
+        if (m) {
+          cards.push(cardHtml(brief(m)));
+        } else {
+          const wp = { id: String(post.id), title: post.title, url: post.url, year: year || "" };
+          wpStore[wp.id] = wp;
+          cards.push(rawCardHtml(wp));
+        }
+      }
+      saveWpPosts(wpStore);
+
+      const head =
         '<div class="search-head"><h2>نتائج البحث عن: <span style="color:var(--accent)">' +
         esc(q) +
-        "</span></h2></div>" +
-        gridHtml(data.results.map(brief)) +
-        paginationHtml(data.page, data.total_pages, params);
+        "</span></h2>" +
+        '<p class="search-note">كما تظهر في Top Cinema</p></div>';
+      app.innerHTML = cards.length
+        ? head + '<div class="row">' + cards.join("") + "</div>"
+        : head + '<div class="empty"><div class="icon">🎬</div><p>لا توجد نتائج في مصدرنا الحالي لهذه الكلمة</p></div>';
       bindGlobal();
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر البحث: ' + esc(e.message) + "</div>";
@@ -1125,6 +1216,40 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     setLoading(false);
   };
 
+  /* صفحة مشاهدة مباشرة لنتيجة بحث Top Cinema (بدون بيانات TMDB) */
+  views.watchWp = async (params) => {
+    setActiveNav("");
+    setLoading(true);
+    const posts = loadWpPosts();
+    const p = posts[params.id];
+    if (!p || !p.url) {
+      app.innerHTML =
+        '<div class="not-found"><div class="icon">🎬</div><p>الرابط قديم أو غير متاح — ابحث عن الفيلم من جديد.</p>' +
+        '<a class="btn btn-ghost" href="#/">الرئيسية</a></div>';
+      setLoading(false);
+      return;
+    }
+    app.innerHTML =
+      '<div class="watch">' +
+      '<div class="section-head"><h2>▶ ' +
+      esc(p.title) +
+      (p.year ? " (" + esc(p.year) + ")" : "") +
+      '</h2><a class="see-all" href="' +
+      esc(p.url) +
+      '" target="_blank" rel="noopener">فتح في Top Cinema</a></div>' +
+      '<div class="watch-frame"><iframe id="watchIframe" src="' +
+      esc(p.url) +
+      '?embedScreen=true" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="' +
+      esc(p.title) +
+      '"></iframe></div>' +
+      '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب فتح <a href="' +
+      esc(p.url) +
+      '?embedScreen=true" target="_blank" rel="noopener" style="color:var(--accent)">النافذة الأصلية</a></p>' +
+      "</div>";
+    bindGlobal();
+    setLoading(false);
+  };
+
   views.library = async (params) => {
     setActiveNav(params.type);
     setLoading(true);
@@ -1220,6 +1345,8 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
       await views.movie({ id: parts[1] });
     } else if (parts[0] === "watch" && parts[1]) {
       await views.watch({ id: parts[1] });
+    } else if (parts[0] === "wp" && parts[1]) {
+      await views.watchWp({ id: decodeURIComponent(parts[1]) });
     } else if (parts[0] === "library" && parts[1]) {
       await views.library({ type: parts[1] });
     } else {
@@ -1269,6 +1396,7 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     if (e.target.closest(".card-fav")) return;
     e.preventDefault();
     if (card.dataset.id) location.hash = "#/movie/" + card.dataset.id;
+    else if (card.dataset.wp) location.hash = "#/wp/" + card.dataset.wp;
   });
 
   /* زر العودة للأعلى + تظليل الهيدر عند التمرير */

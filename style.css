@@ -912,6 +912,14 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   border-radius: 2px;
 }
 
+.search-note {
+  margin: -8px 0 16px 14px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.card-raw .card-title { white-space: normal; line-height: 1.45; }
+
 .filters {
   display: flex;
   gap: 12px;
