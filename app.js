@@ -1073,14 +1073,17 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
     if (card.dataset.id) location.hash = "#/movie/" + card.dataset.id;
   });
 
-  /* زر العودة للأعلى */
+  /* زر العودة للأعلى + تظليل الهيدر عند التمرير */
   const backTop = $("#backTop");
-  if (backTop) {
-    window.addEventListener("scroll", () => {
-      backTop.classList.toggle("show", (window.scrollY || document.documentElement.scrollTop) > 500);
-    }, { passive: true });
-    backTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
-  }
+  const headerEl = document.querySelector(".header");
+  const onScroll = () => {
+    const y = window.scrollY || document.documentElement.scrollTop;
+    if (backTop) backTop.classList.toggle("show", y > 500);
+    if (headerEl) headerEl.classList.toggle("scrolled", y > 8);
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  if (backTop) backTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+  onScroll();
 
   route();
 })();
