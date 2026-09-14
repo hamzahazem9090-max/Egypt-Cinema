@@ -221,7 +221,23 @@
         for (const m of r.json || []) mm[m.id] = m.source_url;
       }
     }
-    return posts.map((p) => itemFromPost(p, mm[p.featured_media]));
+    return rememberItems(posts.map((p) => itemFromPost(p, mm[p.featured_media])));
+  }
+
+  /* مختزن ذاكرة عناوين لترشيح فوري أثناء الكتابة في البحث */
+  const knownItems = new Map();
+
+  function rememberItems(items) {
+    items.forEach((it) => {
+      if (it && it.id && it.title) {
+        knownItems.set(it.id, it);
+        if (knownItems.size > 4000) {
+          const first = knownItems.keys().next().value;
+          knownItems.delete(first);
+        }
+      }
+    });
+    return items;
   }
 
   /* قائمة posts: بحث أو استعراض (fresh دائمًا) */
@@ -241,6 +257,27 @@
       });
       const found = r.json && r.json.length ? r.json : [];
       if (!found.length) return { items: [], total: 0, totalPages: 1 };
+      if (o.fast) {
+        return {
+          items: found.map((x) => {
+            const title = stripHtml(x.title && (x.title.rendered || x.title));
+            const parsed = parseWpTitle(title);
+            return {
+              id: x.id,
+              title,
+              year: parsed.year || "",
+              cats: [],
+              catNames: [],
+              image: "",
+              link: x.url || "",
+              desc: "",
+              isSeries: parsed.isSeries,
+            };
+          }),
+          total: r.total,
+          totalPages: r.totalPages,
+        };
+      }
       const ids = found.map((x) => x.id);
       const d = await tc("posts", {
         include: ids.join(","),
@@ -949,8 +986,10 @@
   }
 
   let lastQuery = "";
+  let activeQ = "";
+  let enrichId = 0;
 
-  function renderSearchDrop(q) {
+  function renderSearchDrop() {
     const rows = searchRows.map(
       (it, i) =>
         '<a class="search-drop-item" data-srow="' +
@@ -968,31 +1007,87 @@
     searchDrop.innerHTML =
       rows.join("") +
       '<a class="search-drop-item all" href="#/search?q=' +
-      encodeURIComponent(q) +
+      encodeURIComponent(activeQ) +
       '">عرض كل النتائج لـ "' +
-      esc(q) +
+      esc(activeQ) +
       '" 🔍</a>';
     searchDrop.hidden = false;
+    enrichDropImages(activeQ);
+  }
+
+  async function enrichDropImages(q) {
+    const myId = ++enrichId;
+    const ids = searchRows.filter((it) => !it.image && it.id).map((it) => it.id);
+    if (!ids.length) return;
+    const pr = await tc("posts", { include: ids.join(","), per_page: 100, _fields: "id,featured_media" });
+    if (myId !== enrichId) return;
+    const fms = (pr.json || []).filter((p) => p.featured_media).map((p) => p.featured_media);
+    if (!fms.length) return;
+    const mr = await tc("media", { include: [...new Set(fms)].join(","), per_page: 100, _fields: "id,source_url" });
+    const mm = {};
+    (mr.json || []).forEach((m) => (mm[m.id] = m.source_url));
+    const byPost = {};
+    (pr.json || []).forEach((p) => { if (mm[p.featured_media]) byPost[p.id] = mm[p.featured_media]; });
+    if (myId !== enrichId) return;
+    let changed = false;
+    searchRows.forEach((it) => { if (byPost[it.id]) { it.image = byPost[it.id]; changed = true; } });
+    if (changed && !searchDrop.hidden && activeQ === q && document.querySelector("#searchInput").value.trim() === q) {
+      const slots = searchDrop.querySelectorAll("[data-srow] > img, [data-srow] > .s-thumb");
+      searchRows.forEach((it, i) => {
+        if (byPost[it.id] && slots[i]) {
+          const img = document.createElement("img");
+          img.src = byPost[it.id];
+          img.loading = "lazy";
+          img.alt = "";
+          slots[i].replaceWith(img);
+        }
+      });
+    }
   }
 
   async function openSearchDrop(q) {
     lastQuery = q;
+    const local = poolRows(q);
+    if (local.length) {
+      activeQ = q;
+      searchRows = local.slice(0, 7);
+      renderSearchDrop();
+    }
+    let res;
     try {
-      const res = await fetchPosts({ search: q, per_page: 8 });
-      if (lastQuery !== q || searchInput.value.trim() !== q) return;
-      searchRows = res.items.slice(0, 7);
-      if (!searchRows.length) {
-        searchDrop.innerHTML = '<div class="search-drop-item none">لا توجد نتائج لـ "' + esc(q) + '"</div>';
-        searchDrop.hidden = false;
-        return;
-      }
-      renderSearchDrop(q);
+      res = await fetchPosts({ search: q, per_page: 12, fast: true });
     } catch (e) {
-      if (lastQuery === q && document.activeElement === searchInput) {
+      if (lastQuery === q && document.activeElement === searchInput && searchDrop.hidden && !local.length) {
         searchDrop.innerHTML = '<div class="search-drop-item none">تعذر البحث الآن</div>';
         searchDrop.hidden = false;
       }
+      return;
     }
+    if (lastQuery !== q || searchInput.value.trim() !== q) return;
+    rememberItems(res.items);
+    const merged = poolRows(q);
+    if (!merged.length) {
+      searchDrop.innerHTML = '<div class="search-drop-item none">لا توجد نتائج لـ "' + esc(q) + '"</div>';
+      searchDrop.hidden = false;
+      return;
+    }
+    activeQ = q;
+    searchRows = merged.slice(0, 7);
+    renderSearchDrop();
+  }
+
+  function poolRows(q) {
+    const nq = norm(q);
+    if (!nq) return [];
+    return [...knownItems.values()].filter((it) => it.title && norm(it.title).includes(nq));
+  }
+
+  function norm(s) {
+    return String(s)
+      .toLowerCase()
+      .replace(/[^a-z0-9\u0600-\u06FF]+/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function syncSearchClear() {
@@ -1007,7 +1102,14 @@
       closeSearchDrop();
       return;
     }
-    searchTimer = setTimeout(() => openSearchDrop(q), 300);
+    const local = poolRows(q);
+    if (local.length) {
+      lastQuery = q;
+      activeQ = q;
+      searchRows = local.slice(0, 7);
+      renderSearchDrop();
+    }
+    searchTimer = setTimeout(() => openSearchDrop(q), 250);
   });
 
   searchClear.addEventListener("click", () => {
