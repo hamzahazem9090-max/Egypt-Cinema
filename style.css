@@ -154,44 +154,160 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
 .nav a.active .count { background: var(--accent); color: #fff; }
 
 .search {
+  position: relative;
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  overflow: hidden;
-  min-width: 220px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border-radius: 999px;
+  overflow: visible;
+  min-width: 240px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .search:focus-within {
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.07);
   box-shadow: var(--ring-accent);
 }
 
 .search input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: 0;
   outline: 0;
   color: var(--text-bright);
-  padding: 10px 14px;
+  padding: 10px 6px 10px 18px;
   font-family: inherit;
   font-size: 0.88rem;
 }
 
+.search input:focus::placeholder { color: transparent; }
+
 .search input::placeholder { color: #555; }
 
-.search button {
+.search-clear {
   background: transparent;
   border: 0;
-  padding: 10px 14px;
-  font-size: 0.9rem;
+  padding: 6px 8px;
+  font-size: 0.72rem;
   color: var(--muted);
-  transition: color 0.15s ease;
+  cursor: pointer;
+  line-height: 1;
+  border-radius: 50%;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
-.search button:hover { color: var(--text-bright); }
+.search-clear:hover { color: var(--text-bright); background: rgba(255, 255, 255, 0.08); }
+
+.search-go {
+  display: grid;
+  place-items: center;
+  margin: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 0.82rem;
+  color: var(--text-bright);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.search-go:hover { background: var(--accent); transform: scale(1.04); }
+
+/* ============================================================
+   نتائج البحث الفوري (درج صغير تحت البار)
+   ============================================================ */
+.search-drop {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  left: 0;
+  background: linear-gradient(180deg, rgba(16, 22, 34, 0.98), rgba(10, 14, 23, 0.99));
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.6);
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: min(380px, 60vh);
+  z-index: 80;
+  backdrop-filter: blur(10px);
+  animation: fadeUp 0.22s var(--ease) both;
+}
+
+.search-drop::-webkit-scrollbar { width: 8px; }
+.search-drop::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 8px; }
+
+.search-drop-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  text-decoration: none;
+  color: var(--text);
+  transition: background 0.12s ease;
+}
+
+.search-drop-item + .search-drop-item { border-top: 1px solid rgba(255, 255, 255, 0.04); }
+
+.search-drop-item:hover,
+.search-drop-item.hl { background: rgba(255, 255, 255, 0.07); }
+
+.search-drop-item img,
+.search-drop-item .s-thumb {
+  width: 42px;
+  height: 58px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 7px;
+}
+
+.search-drop-item .s-thumb {
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 1.1rem;
+}
+
+.search-drop-item .s-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.search-drop-item .s-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.search-drop-item .s-year { font-size: 0.72rem; color: var(--muted); }
+
+.search-drop-item.all {
+  justify-content: center;
+  padding: 11px;
+  border-top: 1px solid var(--hairline);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.search-drop-item.all:hover { color: var(--text-bright); }
+
+.search-drop-item.none {
+  justify-content: center;
+  padding: 14px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: default;
+}
 
 /* ============================================================
    Buttons

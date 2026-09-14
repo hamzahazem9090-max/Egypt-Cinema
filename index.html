@@ -24,9 +24,11 @@
       <a href="#/library/rated" data-nav="rated">قيمت عليها<span class="count"></span></a>
     </nav>
     <form class="search" id="searchForm" role="search">
-      <input type="search" id="searchInput" placeholder="ابحث عن أي فيلم أو مسلسل..." aria-label="ابحث عن فيلم">
-      <button type="submit" aria-label="بحث">🔍</button>
+      <input type="search" id="searchInput" placeholder="ابحث عن أي فيلم أو مسلسل..." aria-label="ابحث عن فيلم" autocomplete="off" spellcheck="false">
+      <button type="button" class="search-clear" id="searchClear" aria-label="مسح البحث" hidden>✕</button>
+      <button type="submit" class="search-go" aria-label="بحث">🔍</button>
     </form>
+    <div class="search-drop" id="searchDrop" hidden></div>
   </div>
 </header>
 

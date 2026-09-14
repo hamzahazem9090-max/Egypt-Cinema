@@ -830,6 +830,7 @@
     try {
       const q = (params.q || "").trim();
       $("#searchInput").value = q;
+      syncSearchClear();
       if (!q) {
         app.innerHTML = '<div class="empty"><div class="icon">🔍</div><p>اكتب اسم فيلم في خانة البحث بالأعلى</p></div>';
         setLoading(false);
@@ -933,19 +934,116 @@
     if (q) location.hash = "#/search?q=" + encodeURIComponent(q);
   });
 
-  let searchDebounce;
-  $("#searchInput").addEventListener("input", () => {
-    clearTimeout(searchDebounce);
-    const q = $("#searchInput").value.trim();
-    if (!q || q.length < 2) {
-      if (location.hash.indexOf("#/search") === 0) app.innerHTML = "";
+  /* ---------- البحث الفوري (درج نتائج صغير) ---------- */
+  const searchInput = $("#searchInput");
+  const searchDrop = $("#searchDrop");
+  const searchClear = $("#searchClear");
+  let searchTimer;
+  let searchRows = [];
+
+  function closeSearchDrop() {
+    searchDrop.hidden = true;
+    searchDrop.innerHTML = "";
+    searchRows = [];
+    lastQuery = "";
+  }
+
+  let lastQuery = "";
+
+  function renderSearchDrop(q) {
+    const rows = searchRows.map(
+      (it, i) =>
+        '<a class="search-drop-item" data-srow="' +
+        i +
+        '" href="#/movie/' +
+        it.id +
+        '">' +
+        (it.image ? '<img src="' + esc(it.image) + '" loading="lazy" alt="">' : '<span class="s-thumb">🎬</span>') +
+        '<span class="s-info"><span class="s-title">' +
+        esc(it.title) +
+        "</span>" +
+        (it.year ? '<span class="s-year">' + esc(it.year) + "</span>" : "") +
+        "</span></a>"
+    );
+    searchDrop.innerHTML =
+      rows.join("") +
+      '<a class="search-drop-item all" href="#/search?q=' +
+      encodeURIComponent(q) +
+      '">عرض كل النتائج لـ "' +
+      esc(q) +
+      '" 🔍</a>';
+    searchDrop.hidden = false;
+  }
+
+  async function openSearchDrop(q) {
+    lastQuery = q;
+    try {
+      const res = await fetchPosts({ search: q, per_page: 8 });
+      if (lastQuery !== q || searchInput.value.trim() !== q) return;
+      searchRows = res.items.slice(0, 7);
+      if (!searchRows.length) {
+        searchDrop.innerHTML = '<div class="search-drop-item none">لا توجد نتائج لـ "' + esc(q) + '"</div>';
+        searchDrop.hidden = false;
+        return;
+      }
+      renderSearchDrop(q);
+    } catch (e) {
+      if (lastQuery === q && document.activeElement === searchInput) {
+        searchDrop.innerHTML = '<div class="search-drop-item none">تعذر البحث الآن</div>';
+        searchDrop.hidden = false;
+      }
+    }
+  }
+
+  function syncSearchClear() {
+    searchClear.hidden = !searchInput.value.trim();
+  }
+
+  searchInput.addEventListener("input", () => {
+    syncSearchClear();
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (q.length < 2) {
+      closeSearchDrop();
       return;
     }
-    searchDebounce = setTimeout(() => {
-      if (location.hash !== "#/search?q=" + encodeURIComponent(q)) {
-        location.hash = "#/search?q=" + encodeURIComponent(q);
+    searchTimer = setTimeout(() => openSearchDrop(q), 300);
+  });
+
+  searchClear.addEventListener("click", () => {
+    searchInput.value = "";
+    syncSearchClear();
+    closeSearchDrop();
+    searchInput.focus();
+  });
+
+  window.addEventListener("hashchange", closeSearchDrop);
+  window.addEventListener("scroll", () => { if (!searchDrop.hidden) closeSearchDrop(); }, { passive: true });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (searchDrop.hidden) return;
+    const items = [...searchDrop.querySelectorAll(".search-drop-item")];
+    if (!items.length) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const dir = e.key === "ArrowDown" ? 1 : -1;
+      let idx = items.findIndex((i) => i.classList.contains("hl"));
+      idx = (idx + dir + items.length) % items.length;
+      items.forEach((i) => i.classList.toggle("hl", i === items[idx]));
+      items[idx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      const hl = searchDrop.querySelector(".hl");
+      if (hl && hl.dataset.srow !== undefined && searchRows[+hl.dataset.srow]) {
+        e.preventDefault();
+        const row = searchRows[+hl.dataset.srow];
+        searchInput.blur();
+        closeSearchDrop();
+        location.hash = "#/movie/" + row.id;
       }
-    }, 350);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeSearchDrop();
+    }
   });
 
   window.addEventListener("hashchange", route);
