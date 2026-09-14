@@ -250,10 +250,26 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
 }
 
 .hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   margin-bottom: 12px;
 }
+
+.hero-meta .chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+}
+
+.hero-meta .chip.rate { color: var(--gold); }
 
 .hero-overview {
   color: #aaa;
@@ -363,12 +379,14 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   overflow: hidden;
   background: var(--bg-soft);
   cursor: pointer;
-  transition: transform 0.25s var(--ease), box-shadow 0.25s ease;
+  transition: transform 0.25s var(--ease), box-shadow 0.3s ease;
+  will-change: transform;
 }
 
 .card:hover {
-  transform: scale(1.04);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  transform: scale(1.04) translateY(-2px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+  z-index: 2;
 }
 
 .card:active { transform: scale(1.01); }
@@ -379,7 +397,77 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   aspect-ratio: 2 / 3;
   background-size: cover;
   background-position: center;
+  position: relative;
 }
+
+/* طبقة تفاصيل الـ hover (غلاف ثانوي + نبذة + أنواع + زر) */
+.card-detail {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
+  pointer-events: none;
+  will-change: opacity, transform;
+}
+
+.card-detail-mask {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(5, 5, 5, 0.96) 20%, rgba(10, 10, 10, 0.78) 55%, rgba(10, 10, 10, 0.35) 100%);
+}
+
+.card-detail-body {
+  position: relative;
+  padding: 14px 12px;
+  width: 100%;
+}
+
+.card-detail-overview {
+  margin: 0 0 10px;
+  font-size: 0.74rem;
+  line-height: 1.6;
+  color: #cfcfcf;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.card-detail-tags span {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: #aaa;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.card-detail-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  padding: 6px 12px;
+  border-radius: 5px;
+}
+
+.card:hover .card-detail { opacity: 1; transform: translateY(0); }
 
 .card-poster.placeholder {
   background: var(--bg-elev);
@@ -397,13 +485,19 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   font-size: 0.88rem;
   margin: 0;
   color: var(--text);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.card-sub { color: var(--muted); font-size: 0.76rem; margin: 3px 0 0; }
+.card-meta {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .card-rating {
   position: absolute;
@@ -669,6 +763,33 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
 .pagination button:hover:not(:disabled) { border-color: var(--border-light); }
 .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
 
+/* تحميل المزيد — صفحة جميع الأفلام */
+.page-title { color: var(--text-bright); font-size: 1.6rem; }
+
+.more-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 28px;
+  animation: fadeIn 0.3s ease both;
+}
+
+.more-count { color: var(--muted); font-size: 0.82rem; font-weight: 600; }
+
+.load-more { min-width: 220px; padding: 12px 24px; font-size: 0.95rem; }
+
+.load-more:disabled { opacity: 0.6; cursor: wait; }
+
+.more-end {
+  text-align: center;
+  margin: 32px 0 6px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-2, #808080);
+  font-size: 0.82rem;
+}
+
 /* ============================================================
    Loading
    ============================================================ */
@@ -731,9 +852,17 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   z-index: 100;
   font-weight: 600;
   font-size: 0.88rem;
+  opacity: 1;
+  transition: opacity 0.24s var(--ease), transform 0.24s var(--ease);
 }
 
-.toast:not([hidden]) { animation: toastIn 0.25s var(--ease) both; }
+.toast:not([hidden]) { animation: toastIn 0.28s var(--ease) backwards; }
+
+.toast.toast-hide {
+  opacity: 0;
+  transform: translateX(-50%) translateY(10px);
+  pointer-events: none;
+}
 
 @keyframes toastIn {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }
@@ -767,7 +896,7 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
    Animations (minimal, functional)
    ============================================================ */
 .main > * {
-  animation: fadeIn 0.25s ease both;
+  animation: fadeIn 0.3s var(--ease) both;
 }
 
 @keyframes fadeIn {
@@ -776,13 +905,50 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
 }
 
 @keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hero { animation: fadeUp 0.4s var(--ease) both; }
+.hero-backdrop { animation: heroZoom 0.8s var(--ease) both; }
+.hero-content { animation: fadeUp 0.45s 0.08s var(--ease) both; }
+.hero-nav, .hero-dots { animation: fadeIn 0.4s 0.15s ease both; }
+
+@keyframes heroZoom {
+  from { opacity: 0; transform: scale(1.06); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.movie { animation: fadeUp 0.4s var(--ease) both; }
+.movie-grid { animation: fadeUp 0.4s 0.05s var(--ease) both; }
+
+.movie-poster {
+  transition: transform 0.35s var(--ease), box-shadow 0.35s ease;
+  will-change: transform;
+}
+
+.movie:hover .movie-poster { transform: scale(1.015); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65); }
+
+/* دخول البطاقات: امتداد لطيف وبدون تأخير مبالغ */
+.row .card { animation: cardIn 0.38s var(--ease) both; }
+
+@keyframes cardIn {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.hero { animation: fadeUp 0.35s var(--ease) both; }
-
-.movie { animation: fadeUp 0.3s var(--ease) both; }
+.row .card:nth-child(1) { animation-delay: 0.02s; }
+.row .card:nth-child(2) { animation-delay: 0.04s; }
+.row .card:nth-child(3) { animation-delay: 0.06s; }
+.row .card:nth-child(4) { animation-delay: 0.08s; }
+.row .card:nth-child(5) { animation-delay: 0.1s; }
+.row .card:nth-child(6) { animation-delay: 0.12s; }
+.row .card:nth-child(7) { animation-delay: 0.14s; }
+.row .card:nth-child(8) { animation-delay: 0.16s; }
+.row .card:nth-child(9) { animation-delay: 0.18s; }
+.row .card:nth-child(10) { animation-delay: 0.2s; }
+.row .card:nth-child(11) { animation-delay: 0.22s; }
+.row .card:nth-child(12) { animation-delay: 0.24s; }
 
 .reveal {
   opacity: 0;

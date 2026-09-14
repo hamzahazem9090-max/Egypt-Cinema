@@ -205,14 +205,34 @@
       backdropPath: m.backdrop_path,
       voteAverage: m.vote_average,
       voteCount: m.vote_count,
-      genres: (m.genres || []).map((g) => g.name),
-      runtime: m.runtime ?? null,
-    };
-  }
+genres: (m.genres || []).map((g) => g.name),
+    genreIds: m.genre_ids || [],
+    runtime: m.runtime ?? null,
+  };
+}
 
+  const pct = (score) => Math.round((score || 0) * 10);
   const poster = (b, w) => (b.posterPath ? IMG + "/w" + w + b.posterPath : "");
   const backdrop = (b, w) => (b.backdropPath ? IMG + "/w" + w + b.backdropPath : "");
-  const pct = (score) => Math.round((score || 0) * 10);
+
+  const fmtRuntime = (min) => {
+    if (!min) return "";
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return ((h ? h + "س" : "") + (m ? m + "د" : "")) || (h ? h + "س" : "");
+  };
+
+  let genresById = {};
+  function seedGenreNames() {
+    loadGenres()
+      .then((gs) => {
+        (gs || []).forEach((g) => (genresById[g.id] = g.name));
+      })
+      .catch(() => {});
+  }
+  function cardGenres(b) {
+    return (b.genreIds || []).map((id) => genresById[id]).filter(Boolean).slice(0, 2);
+  }
 
   /* تحويل snapshot مخزن إلى بيانات بطاقة */
   function briefFromSnapshot(s) {
@@ -231,18 +251,29 @@
     };
   }
 
-  /* ---------- كرت الفيلم ---------- */
+  /* ---------- كرت الفيلم (غني بالتفاصيل + طبقة تفاصيل عند الـ hover) ---------- */
   function cardHtml(b) {
     const fav = isFav(b.id);
     const img = poster(b, 300);
+    const bd = backdrop(b, 500);
+    const genres = cardGenres(b);
+    const rt = fmtRuntime(b.runtime);
+    const meta = [b.year ? esc(b.year) : "", ...genres.map(esc), rt].filter(Boolean).join(" · ") || "—";
+    const synopsis = (b.overview || "").slice(0, 150);
     const post =
       '<div class="card-poster ' +
       (img ? "" : "placeholder") +
       '" style="' +
       (img ? "background-image:url('" + img + "')" : "") +
       '">' +
-      (!img ? esc(b.title || "؟").charAt(0) : "") +
-      "</div>";
+      (!img ? esc((b.title || "؟").charAt(0)) : "") +
+      '<div class="card-detail"' +
+      (bd ? " style=\"background-image:url('" + bd + "')\"" : "") +
+      '"><div class="card-detail-mask"></div><div class="card-detail-body">' +
+      (synopsis ? '<p class="card-detail-overview">' + esc(synopsis) + "…</p>" : "") +
+      (genres.length ? '<div class="card-detail-tags">' + genres.map((g) => "<span>" + esc(g) + "</span>").join("") + "</div>" : "") +
+      '<span class="card-detail-play">▶ شاهد الآن</span>' +
+      "</div></div></div>";
     return (
       '<div class="card" data-id="' +
       b.id +
@@ -261,10 +292,9 @@
       post +
       '<div class="card-body"><p class="card-title">' +
       esc(b.title) +
-      '</p><p class="card-sub">' +
-      (b.year ? esc(b.year) : "—") +
-      "</p></div>" +
-      "</a>" +
+      '</p><p class="card-meta">' +
+      meta +
+      "</p></div></a>" +
       '<span class="card-rating">⭐ ' +
       fa(pct(b.voteAverage)) +
       "%</span>" +
@@ -484,10 +514,14 @@
 
   function toast(msg) {
     const t = $("#toast");
+    t.classList.remove("toast-hide");
     t.textContent = msg;
     t.hidden = false;
     clearTimeout(t._t);
-    t._t = setTimeout(() => (t.hidden = true), 1800);
+    t._t = setTimeout(() => {
+      t.classList.add("toast-hide");
+      setTimeout(() => (t.hidden = true), 240);
+    }, 1600);
   }
 
   /* ظهور العناصر عند التمرير */
@@ -550,10 +584,11 @@
           esc(b.title) +
           "</h1>" +
           '<div class="hero-meta">' +
-          (b.year ? esc(b.year) + " · " : "") +
-          "⭐ " +
+          (b.year ? '<span class="chip">' + esc(b.year) + "</span>" : "") +
+          (cardGenres(b).length ? '<span class="chip">' + cardGenres(b).map(esc).join(" · ") + "</span>" : "") +
+          '<span class="chip rate">⭐ ' +
           fa(pct(b.voteAverage)) +
-          "%</div>" +
+          "%</span></div>" +
           (b.overview
             ? '<p class="hero-overview">' + esc(b.overview) + "</p>"
             : "") +
@@ -630,18 +665,45 @@
     setLoading(true);
     try {
       const genres = await loadGenres();
-      const page = +params.page || 1;
+      genres.forEach((g) => (genresById[g.id] = g.name));
       const sortBy = params.sortBy || "popularity.desc";
       const withGenres = params.genres || "";
       const year = params.year || "";
 
-      const data = await tmdb("/discover/movie", {
-        page,
-        sort_by: sortBy,
-        with_genres: withGenres,
-        primary_release_year: year,
-        "vote_count.gte": 50,
-      });
+      const state = { page: 0, acc: [], totalPages: 1, totalResults: 0, loading: false };
+
+      const fetchPage = (p) =>
+        tmdb("/discover/movie", {
+          page: p,
+          sort_by: sortBy,
+          with_genres: withGenres,
+          primary_release_year: year,
+          "vote_count.gte": 50,
+        });
+
+      const append = (res) => {
+        state.totalPages = res.total_pages || 1;
+        state.totalResults = res.total_results || 0;
+        (res.results || []).forEach((m) => state.acc.push(brief(m)));
+      };
+
+      const moreSlot = () => {
+        if (state.page >= state.totalPages) {
+          return state.acc.length
+            ? '<p class="more-end">عرض ' + fa(state.acc.length) + " فيلم — وصلت للنهاية</p>"
+            : "";
+        }
+        return (
+          '<div class="more-wrap">' +
+          '<span class="more-count">عرض ' +
+          fa(state.acc.length) +
+          " من " +
+          fa(state.totalResults) +
+          "</span>" +
+          '<button id="loadMoreBtn" class="btn btn-ghost load-more">تحميل المزيد</button>' +
+          "</div>"
+        );
+      };
 
       const gOpts =
         '<option value="">كل الأنواع</option>' +
@@ -661,23 +723,64 @@
         .map(([v, l]) => '<option value="' + v + '"' + (sortBy == v ? " selected" : "") + ">" + l + "</option>")
         .join("");
 
-      app.innerHTML =
-        '<h1 class="page-title" style="margin:24px 0 0">تصفح جميع الأفلام</h1>' +
-        '<form class="filters" id="filtersForm">' +
-        '<label>الترتيب <select name="sortBy">' +
-        sOpts +
-        "</select></label>" +
-        '<label>النوع <select name="genres">' +
-        gOpts +
-        "</select></label>" +
-        '<label>السنة <select name="year">' +
-        yOpts +
-        "</select></label>" +
-        "</form>" +
-        gridHtml(data.results.map(brief)) +
-        paginationHtml(data.page, data.total_pages, params);
-      bindFilters();
-      bindGlobal();
+      const render = () => {
+        app.innerHTML =
+          '<h1 class="page-title" style="margin:24px 0 0">تصفح جميع الأفلام</h1>' +
+          '<form class="filters" id="filtersForm">' +
+          '<label>الترتيب <select name="sortBy">' +
+          sOpts +
+          "</select></label>" +
+          '<label>النوع <select name="genres">' +
+          gOpts +
+          "</select></label>" +
+          '<label>السنة <select name="year">' +
+          yOpts +
+          "</select></label>" +
+          "</form>" +
+          '<div id="browseResults">' +
+          gridHtml(state.acc) +
+          "</div>" +
+          moreSlot();
+        bindFilters();
+        bindGlobal();
+        const btn = $("#loadMoreBtn");
+        if (btn) btn.addEventListener("click", loadMore);
+      };
+
+      async function loadMore() {
+        if (state.loading) return;
+        state.loading = true;
+        const btn = $("#loadMoreBtn");
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "جاري التحميل…";
+        }
+        try {
+          const res = await fetchPage(state.page + 1);
+          state.page = res.page || state.page + 1;
+          append(res);
+          const slot = $("#browseResults");
+          if (slot) slot.innerHTML = gridHtml(state.acc);
+          const wrap = document.querySelector(".more-wrap");
+          if (wrap) wrap.outerHTML = moreSlot();
+          bindGlobal();
+          const nb = $("#loadMoreBtn");
+          if (nb) nb.addEventListener("click", loadMore);
+        } catch (e) {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "تحميل المزيد";
+          }
+          toast("تعذر التحميل: " + e.message);
+        }
+        state.loading = false;
+      }
+
+      const [r1, r2] = await Promise.all([fetchPage(1), fetchPage(2)]);
+      append(r1);
+      append(r2);
+      state.page = 2;
+      render();
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر التحميل: ' + esc(e.message) + "</div>";
     }
@@ -810,6 +913,8 @@
         "<div><strong>النجوم:</strong> " +
         esc(cast) +
         "</div>" +
+        (data.production_countries?.length ? "<div><strong>البلد:</strong> " + esc(data.production_countries.map((c) => c.name).join("، ")) + "</div>" : "") +
+        (data.spoken_languages?.length ? "<div><strong>اللغات:</strong> " + esc(data.spoken_languages.map((l) => l.name).filter(Boolean).slice(0, 3).join("، ")) + "</div>" : "") +
         (trailer ? '<div><a href="https://www.youtube.com/watch?v=' + trailer.key + '" target="_blank" rel="noopener" style="color:var(--accent)">▶ مشاهدة الإعلان الرسمي</a></div>' : "") +
         "</div></div></div></div></section>" +
         '<section class="section reveal"><div class="section-head"><h2>أفلام مشابهة</h2></div>' +
@@ -1063,6 +1168,7 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
   window.addEventListener("hashchange", route);
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   renderNavBadges();
+  seedGenreNames();
 
   /* ضغطة في أي مكان على البطاقة = فتح الفيلم (مستوى الصفحة كله) */
   document.addEventListener("click", (e) => {
