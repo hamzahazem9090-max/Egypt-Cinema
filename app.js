@@ -32,9 +32,8 @@
   const TMDB_BASE = "/tmdb";
   const IMG = "https://image.tmdb.org/t/p";
   const LANG = "ar";
-  const SRC = "https://egybests.live";
   const LS_LIB = "tc_guest_library_v1";
-  const LS_LINKS = "tc_links_cache_v2";
+  const LS_LINKS = "tc_links_cache_v3";
 
   const $ = (sel) => document.querySelector(sel);
   const app = $("#app");
@@ -354,7 +353,7 @@ genres: (m.genres || []).map((g) => g.name),
     return data.genres;
   }
 
-  /* ---------- المصدر (egybest) ---------- */
+  /* ---------- المصدر (topcinema) ---------- */
   const STOP = new Set(["the", "a", "an", "and", "for", "of", "in", "on", "to", "with", "at", "film", "movie", "series", "tv", "part"]);
 
   function normalize(s) {
@@ -382,10 +381,12 @@ genres: (m.genres || []).map((g) => g.name),
   const stripHtml = (s) => s.replace(/<[^>]*>/g, "").trim();
 
   async function searchTopcinema(query) {
-    const url = new URL(SRC + "/wp-json/wp/v2/posts");
+    /* يمر عبر /search/ على الخادم (nginx) حتى لا يعتمد على CORS من المصدر */
+    const url = new URL("/search/wp-json/wp/v2/search", location.origin);
     url.searchParams.set("search", query);
     url.searchParams.set("per_page", "20");
-    url.searchParams.set("_fields", "id,title,link");
+    url.searchParams.set("subtype", "post");
+    url.searchParams.set("_fields", "id,title,url");
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 12000);
@@ -402,7 +403,7 @@ genres: (m.genres || []).map((g) => g.name),
       return json.map((r) => ({
         id: r.id,
         title: stripHtml(r.title?.rendered || r.title || ""),
-        link: r.link || "",
+        url: r.url || r.link || "",
       }));
     } catch {
       return [];
@@ -421,37 +422,6 @@ genres: (m.genres || []).map((g) => g.name),
     try {
       localStorage.setItem(LS_LINKS, JSON.stringify(cache));
     } catch {}
-  }
-
-  async function getServers(postId) {
-    /* بقرأ سيرفرات التشغيل من صفحة الفيلم عبر /proxy/ (يقفها nginx للسايت الحي) */
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 15000);
-      let html = "";
-      try {
-        const res = await fetch("/proxy/?p=" + postId, { signal: ctrl.signal });
-        if (res.ok) html = await res.text();
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!html) return [];
-      const links = [...html.matchAll(/https:\/\/egybests\.live\/watch\/\?url=[^"']+/gi)].map((m) => m[0]);
-      const servers = [];
-      for (const link of links) {
-        try {
-          const b64 = decodeURIComponent(link.replace("https://egybests.live/watch/?url=", ""));
-          servers.push(atob(b64));
-        } catch {}
-      }
-      return servers
-        .filter(Boolean)
-        .map((u) => ({ url: u, rank: providerRank(u) }))
-        .sort((a, b) => b.rank - a.rank)
-        .map((s) => s.url);
-    } catch {
-      return [];
-    }
   }
 
   function hostnameOf(u) {
@@ -506,14 +476,13 @@ genres: (m.genres || []).map((g) => g.name),
     }
 
     let resolved = null;
-    if (best && best.score >= 0.5 && best.r.id) {
-      const servers = await getServers(best.r.id);
+    if (best && best.score >= 0.5 && best.r.url) {
       resolved = {
         tmdbId: b.id,
         score: best.score,
         title: best.r.title,
-        servers: servers.slice(0, 6),
-        embedUrl: servers[0] || SRC + "/embeds/?id=" + best.r.id,
+        servers: [],
+        embedUrl: best.r.url + "?embedScreen=true",
       };
     }
 
@@ -1132,9 +1101,11 @@ document.querySelectorAll("[data-rate]").forEach((btn) =>
         esc(b.title) +
         '"></iframe></div>' +
         serversRow +
-        '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إن أكثُرت الإعلانات في سيرفر، اختر سيرفرًا آخر من الأزرار أعلاه (Dood و Mixdrop عادة الأقل إعلانًا). <a href="' +
-        esc(resolved.embedUrl) +
-        '" target="_blank" rel="noopener" style="color:var(--accent)">فتح النافذة الأصلية</a></p>' +
+        (servers.length
+          ? '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إن أكثُرت الإعلانات في سيرفر، اختر سيرفرًا آخر من الأزرار أعلاه.</p>'
+          : '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب فتح <a href="' +
+            esc(resolved.embedUrl) +
+            '" target="_blank" rel="noopener" style="color:var(--accent)">النافذة الأصلية</a></p>') +
         "</div>";
 
       document.querySelectorAll(".srv-btn").forEach((btn) =>
