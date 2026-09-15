@@ -183,9 +183,39 @@
       .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
       .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
 
+  /* تحويل "الموسم السابع" و "الحادي عشر" و "الثاني والعشرون" إلى رقم */
+  const wordN = (w2) => {
+    const unit = {
+      الحادي: 1, الحادية: 1, الثاني: 2, الثانية: 2, الثالث: 3, الثالثة: 3,
+      الرابع: 4, الرابعة: 4, الخامس: 5, الخامسة: 5, السادس: 6, السادسة: 6,
+      السابع: 7, السابعة: 7, الثامن: 8, الثامنة: 8, التاسع: 9, التاسعة: 9,
+      العاشر: 10, العاشرة: 10
+    };
+    const tens = {
+      عشر: 10, عشرة: 10, عشرون: 20, عشرين: 20, ثلاثون: 30, ثلاثين: 30,
+      اربعون: 40, أربعون: 40, اربعين: 40, أربعين: 40, خمسون: 50, خمسين: 50,
+      ستون: 60, ستين: 60, سبعون: 70, سبعين: 70, ثمانون: 80, ثمانين: 80,
+      تسعون: 90, تسعين: 90
+    };
+    const w = (" " + (w2 || "") + " ")
+      .replace(/[أإآ]/g, "ا")
+      .replace(/\s+/g, " ")
+      .trim();
+    for (const k of Object.keys(unit).sort((x, y) => y.length - x.length)) {
+      if (w === k || w.startsWith(k + " ")) {
+        const rest = w.slice(k.length).trim().replace(/^و/, "").trim();
+        if (tens[rest]) return unit[k] + tens[rest];
+        return unit[k];
+      }
+    }
+    return tens[w] || 0;
+  };
+
   /* تحليل عنوان حلقة في Top Cinema مثل:
      "انمي ون بيس One Piece الحلقة 1178 مترجمة"
-     "مسلسل X الموسم 2 الحلقة 5 مترجمة" => { base, season, episode, finale } */
+     "مسلسل X الموسم 2 الحلقة 5 مترجمة"
+     "مسلسل Hawaii Five-0 الموسم السابع الحلقة 25 والاخيرة مترجمة"
+     => { base, season, episode, finale } */
   function parseEpTitle(title) {
     const t = toLatin(stripHtml(title));
     const isEpisode = /الحلقة/i.test(t);
@@ -194,14 +224,18 @@
     if (isEpisode) {
       const m = t.match(/الحلقة\s*\d+/i);
       if (m) episode = parseInt(m[0].replace(/\D/g, ""), 10) || 0;
-      else finale = true;
-      if (/الاخيرة|الاخير/i.test(t) && !m) finale = true;
+      if (/الاخيرة|الاخير|اخيرة|فينال|finale/i.test(t)) finale = true;
+      if (!m && !finale) finale = true;
     }
-    const sN = t.match(/الموسم\s*\d+/i);
-    const season = sN ? parseInt(sN[0].replace(/\D/g, ""), 10) || 0 : 0;
+    /* رقم الموسم إن جاء رقمًا (٢ أو 14) أو كلمةً (السابع، الحادي عشر) */
+    let season = 0;
+    const sDigit = t.match(/الموسم\s*(\d+)/i);
+    const sWord = t.match(/الموسم\s+(\S+(?:\s+\S+)?)/i);
+    if (sDigit) season = parseInt(sDigit[1], 10) || 0;
+    else if (sWord) season = wordN(sWord[1]) || 0;
     let base = t
       .replace(/\s*الحلقة.*$/g, "")
-      .replace(/\s*الموسم(?:\s*\d+)?.*$/g, "");
+      .replace(/\s*الموسم.*$/g, "");
     base = base
       .replace(/^(?:انمي|مسلسل|فيلم|افلام انمي|افلام)\s*[:：\-]?\s*/i, "")
       .replace(/\s*(?:مترجمة|مترجم|اون لاين|كاملة|مشاهدة|والاخيرة|الاخيرة)\s*$/i, "")
@@ -403,26 +437,38 @@
     });
     const list = [...byId.values()];
     if (!list.length) return [];
+    const hasSeasons = list.some((e) => e.season > 0);
+    const noSeasonsMany = !hasSeasons && list.length > 100;
     const groups = new Map();
     list.forEach((e) => {
-      if (!groups.has(e.season)) groups.set(e.season, []);
-      groups.get(e.season).push(e);
+      if (noSeasonsMany) {
+        const c = Math.floor((e.episode - 1) / 100);
+        const k = "c" + c;
+        if (!groups.has(k)) groups.set(k, { kind: "chunk", items: [] });
+        groups.get(k).items.push(e);
+      } else {
+        const k = "s" + e.season;
+        if (!groups.has(k)) groups.set(k, { kind: "season", season: e.season, items: [] });
+        groups.get(k).items.push(e);
+      }
     });
     return [...groups.keys()]
-      .sort((a, b) => a - b)
-      .map((s) => ({
-        season: s,
-        items: groups
-          .get(s)
-          .slice()
-          .sort((a, b) => (a.finale ? 1 : 0) - (b.finale ? 1 : 0) || a.episode - b.episode),
-      }));
+      .sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10))
+      .map((k) => {
+        const g = groups.get(k);
+        g.items.sort((x, y) => (x.finale ? 1 : 0) - (y.finale ? 1 : 0) || x.episode - y.episode);
+        return { kind: g.kind, season: g.season || 0, items: g.items };
+      });
   }
 
   function episodesHtml(groups, currentId) {
     return groups
       .map((g) => {
-        const head = g.season ? "الموسم " + fa(g.season) : "الحلقات";
+        let head = g.season ? "الموسم " + fa(g.season) : "الحلقات";
+        if (g.kind === "chunk") {
+          const es = g.items.map((i) => i.episode).filter(Boolean);
+          head = es.length ? "الحلقة " + fa(Math.min.apply(null, es)) + " - " + fa(Math.max.apply(null, es)) : head;
+        }
         const cells = g.items
           .map(
             (e) =>
