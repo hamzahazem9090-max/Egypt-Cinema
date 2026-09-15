@@ -627,6 +627,23 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   pointer-events: none;
 }
 
+.card-eps {
+  position: absolute;
+  top: 8px;
+  inset-inline-end: 8px;
+  z-index: 2;
+  background: rgba(8, 8, 8, 0.78);
+  color: var(--accent);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+
 .card:hover .card-poster { transform: scale(1.03); }
 
 /* طبقة تفاصيل الـ hover (غلاف ثانوي + نبذة + أنواع + زر) */

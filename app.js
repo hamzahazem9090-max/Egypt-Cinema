@@ -306,6 +306,46 @@
     return items;
   }
 
+  /* ضم حلقات المسلسل في بوستر واحد عند العرض في الشبكة/القائمة */
+  function dedupeSeries(items) {
+    const out = [];
+    const seen = new Map();
+    items.forEach((it) => {
+      const p = parseEpTitle(it.title);
+      if (!p.isEpisode || !p.base) {
+        out.push(it);
+        return;
+      }
+      const key = norm(p.base);
+      if (!key) {
+        out.push(it);
+        return;
+      }
+      let rep = seen.get(key);
+      if (!rep) {
+        rep = Object.assign({}, it, {
+          title: p.base,
+          seriesCount: 1,
+          seriesBase: p.base,
+          seriesLastEp: p.episode || 0,
+          seriesLastId: it.id,
+        });
+        seen.set(key, rep);
+        out.push(rep);
+      } else {
+        rep.seriesCount++;
+        if ((p.episode || 0) > rep.seriesLastEp) {
+          rep.seriesLastEp = p.episode || 0;
+          rep.seriesLastId = it.id;
+        }
+      }
+    });
+    out.forEach((rep) => {
+      if (rep.seriesCount > 1 && rep.seriesLastId) rep.id = rep.seriesLastId;
+    });
+    return out;
+  }
+
   /* قائمة posts: بحث أو استعراض (fresh دائمًا) */
   async function fetchPosts(o) {
     const per_page = o.per_page || 40;
@@ -580,6 +620,7 @@
     const fav = isFav(id);
     const img = item.image || "";
     const metaParts = [];
+    if (item.seriesCount > 1) metaParts.push('<span class="cmeta">' + fa(item.seriesCount) + " حلقة</span>");
     if (item.year) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ year: item.year }) + '">' + esc(item.year) + "</span>");
     if (item.isSeries) metaParts.push('<span class="cmeta">مسلسل</span>');
     item.catNames.forEach((nm, i) => {
@@ -603,6 +644,7 @@
       (img ? "background-image:url('" + esc(img) + "')" : "") +
       '">' +
       (!img ? "🎬" : "") +
+      (item.seriesCount > 1 ? '<span class="card-eps">' + fa(item.seriesCount) + " حلقة</span>" : "") +
       '<div class="card-detail"><div class="card-detail-mask"></div><div class="card-detail-body">' +
       (synopsis ? '<p class="card-detail-overview">' + esc(synopsis) + "…</p>" : "") +
       tags +
@@ -757,12 +799,12 @@
         '<section class="section reveal"><div class="section-head"><h2>🎬 أحدث الأفلام</h2>' +
         '<a class="see-all" href="' + browseQuery({ cat: FILM_CATS.join(",") }) + '">عرض الكل</a></div>' +
         (filmCats.length ? '<div class="filter-chips">' + pills(filmCats) + "</div>" : "") +
-        gridHtml(films.items.slice(1, 25)) +
+        gridHtml(dedupeSeries(films.items).slice(1, 25)) +
         "</section>" +
         '<section class="section reveal"><div class="section-head"><h2>📺 أحدث المسلسلات</h2>' +
         '<a class="see-all" href="' + browseQuery({ cat: SERIES_CATS.join(",") }) + '">عرض الكل</a></div>' +
         (seriesCats.length ? '<div class="filter-chips">' + pills(seriesCats) + "</div>" : "") +
-        gridHtml(series.items.slice(0, 25)) +
+        gridHtml(dedupeSeries(series.items).slice(0, 25)) +
         "</section>";
       renderHero();
       bindGlobal();
@@ -804,15 +846,16 @@
       };
 
       const moreSlot = () => {
+        const shown = dedupeSeries(state.acc).length;
         if (state.page >= state.totalPages) {
-          return state.acc.length
-            ? '<p class="more-end">عرض ' + fa(state.acc.length) + " عنصر — وصلت للنهاية</p>"
+          return shown
+            ? '<p class="more-end">عرض ' + fa(shown) + " عنصر — وصلت للنهاية</p>"
             : "";
         }
         return (
           '<div class="more-wrap">' +
           '<span class="more-count">عرض ' +
-          fa(state.acc.length) +
+          fa(shown) +
           " من " +
           fa(state.totalResults) +
           "</span>" +
@@ -862,7 +905,7 @@
           "</form>" +
           chipsRow +
           '<div id="browseResults">' +
-          gridHtml(state.acc) +
+          gridHtml(dedupeSeries(state.acc)) +
           "</div>" +
           moreSlot();
         bindFilters();
@@ -898,7 +941,7 @@
           state.page = state.page + 1;
           append(res);
           const slot = $("#browseResults");
-          if (slot) slot.innerHTML = gridHtml(state.acc);
+          if (slot) slot.innerHTML = gridHtml(dedupeSeries(state.acc));
           const wrap = document.querySelector(".more-wrap");
           if (wrap) wrap.outerHTML = moreSlot();
           bindGlobal();
@@ -991,7 +1034,7 @@
         epsSection +
         (related.length
           ? '<section class="section reveal"><div class="section-head"><h2>الأحدث في نفس القسم</h2></div>' +
-            gridHtml(related) +
+            gridHtml(dedupeSeries(related)) +
             "</section>"
           : "");
 
@@ -1085,7 +1128,7 @@
         "</span></h2>" +
         '<p class="search-note">كما تظهر في Top Cinema</p></div>';
       app.innerHTML = items.length
-        ? head + '<div class="row">' + items.map(cardHtml).join("") + "</div>"
+        ? head + '<div class="row">' + dedupeSeries(items).map(cardHtml).join("") + "</div>"
         : head + '<div class="empty"><div class="icon">🎬</div><p>لا توجد نتائج في مصدرنا الحالي لهذه الكلمة</p></div>';
       bindGlobal();
       observeReveals();
@@ -1251,10 +1294,10 @@
 
   async function openSearchDrop(q) {
     lastQuery = q;
-    const local = poolRows(q);
-    if (local.length) {
-      activeQ = q;
-      searchRows = local.slice(0, 7);
+const local = dedupeSeries(poolRows(q));
+      if (local.length) {
+        activeQ = q;
+        searchRows = local.slice(0, 7);
       renderSearchDrop();
     }
     let res;
@@ -1269,14 +1312,14 @@
     }
     if (lastQuery !== q || searchInput.value.trim() !== q) return;
     rememberItems(res.items);
-    const merged = poolRows(q);
+const merged = dedupeSeries(poolRows(q));
     if (!merged.length) {
       searchDrop.innerHTML = '<div class="search-drop-item none">لا توجد نتائج لـ "' + esc(q) + '"</div>';
       searchDrop.hidden = false;
       return;
     }
     activeQ = q;
-    searchRows = merged.slice(0, 7);
+    searchRows = dedupeSeries(merged).slice(0, 7);
     renderSearchDrop();
   }
 
