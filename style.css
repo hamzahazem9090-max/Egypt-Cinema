@@ -526,10 +526,12 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   margin: 0;
   color: var(--text-bright);
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .section-head h2::before {
@@ -540,6 +542,8 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   background: var(--accent);
   border-radius: 2px;
   flex-shrink: 0;
+  margin-inline-end: 10px;
+  vertical-align: -2px;
 }
 
 .section-head::after {
@@ -1452,7 +1456,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .hero-poster { width: 90px; }
   .hero-content { padding: 20px; }
   .section-head { gap: 8px; }
-  .section-head h2 { font-size: 1.05rem; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .section-head h2 { font-size: 1.05rem; }
   .section-head::after { display: none; }
   .section-head .see-all { font-size: 0.72rem; padding: 5px 9px; }
   .watch { margin-top: 14px; }
