@@ -306,7 +306,8 @@
     return items;
   }
 
-  /* ضم حلقات المسلسل في بوستر واحد عند العرض في الشبكة/القائمة */
+  /* ضم حلقات المسلسل في بوستر واحد عند العرض في الشبكة/القائمة
+     (كل موسم/جزء ببوستر مستقل) */
   function dedupeSeries(items) {
     const out = [];
     const seen = new Map();
@@ -316,17 +317,18 @@
         out.push(it);
         return;
       }
-      const key = norm(p.base);
-      if (!key) {
+      const key = norm(p.base) + (p.season ? "|s" + p.season : "");
+      if (!norm(p.base)) {
         out.push(it);
         return;
       }
       let rep = seen.get(key);
       if (!rep) {
         rep = Object.assign({}, it, {
-          title: p.base,
+          title: p.base + (p.season ? " - الموسم " + fa(p.season) : ""),
           seriesCount: 1,
           seriesBase: p.base,
+          seriesSeason: p.season || 0,
           seriesLastEp: p.episode || 0,
           seriesLastId: it.id,
         });
