@@ -935,7 +935,8 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
 .watch-frame {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 0;
+  padding-bottom: 56.25%;
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: #000;
@@ -1450,6 +1451,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .hero h1 { font-size: 1.5rem; }
   .hero-poster { width: 90px; }
   .hero-content { padding: 20px; }
+  .section-head { gap: 8px; }
+  .section-head h2 { font-size: 1.05rem; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .section-head::after { display: none; }
+  .section-head .see-all { font-size: 0.72rem; padding: 5px 9px; }
+  .watch { margin-top: 14px; }
+  .watch-frame { border-radius: 12px; }
+  body { overflow-x: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
