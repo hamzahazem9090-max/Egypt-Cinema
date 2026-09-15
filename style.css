@@ -980,6 +980,73 @@ html { scrollbar-color: #333 var(--bg); scrollbar-width: thin; }
   transform: scale(1.05);
 }
 
+/* اختيار الحلقات (أنمي/مسلسلات) */
+.ep-wrap {
+  max-height: 540px;
+  overflow-y: auto;
+  padding-inline-end: 4px;
+  scrollbar-width: thin;
+}
+
+.ep-wrap::-webkit-scrollbar { width: 8px; }
+.ep-wrap::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 8px; }
+
+.ep-block + .ep-block { margin-top: 20px; }
+
+.ep-seas {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: var(--text-bright);
+}
+
+.ep-seas::before {
+  content: "";
+  width: 4px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.ep-seas .ep-count {
+  background: rgba(229, 9, 20, 0.16);
+  color: var(--accent);
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.ep-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+  gap: 8px;
+}
+
+.ep-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+
+.ep-btn:hover { border-color: var(--accent); color: #fff; transform: translateY(-1px); }
+.ep-btn:active { transform: scale(0.96); }
+.ep-btn.current { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.ep-loading { color: var(--muted); font-size: 0.85rem; }
+
 /* ============================================================
    States
    ============================================================ */
@@ -1461,6 +1528,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .section-head .see-all { font-size: 0.72rem; padding: 5px 9px; }
   .watch { margin-top: 14px; }
   .watch-frame { border-radius: 12px; }
+  .ep-grid { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+  .ep-btn { height: 38px; font-size: 0.8rem; }
   body { overflow-x: hidden; }
 }
 

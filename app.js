@@ -177,6 +177,38 @@
 
   const stripHtml = (s) => (s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
+  /* تحويل الأرقام/الأحرف العربية إلى لاتينية */
+  const toLatin = (s) =>
+    String(s || "")
+      .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
+      .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+
+  /* تحليل عنوان حلقة في Top Cinema مثل:
+     "انمي ون بيس One Piece الحلقة 1178 مترجمة"
+     "مسلسل X الموسم 2 الحلقة 5 مترجمة" => { base, season, episode, finale } */
+  function parseEpTitle(title) {
+    const t = toLatin(stripHtml(title));
+    const isEpisode = /الحلقة/i.test(t);
+    let episode = 0;
+    let finale = false;
+    if (isEpisode) {
+      const m = t.match(/الحلقة\s*\d+/i);
+      if (m) episode = parseInt(m[0].replace(/\D/g, ""), 10) || 0;
+      else finale = true;
+      if (/الاخيرة|الاخير/i.test(t) && !m) finale = true;
+    }
+    const sN = t.match(/الموسم\s*\d+/i);
+    const season = sN ? parseInt(sN[0].replace(/\D/g, ""), 10) || 0 : 0;
+    let base = t
+      .replace(/\s*الحلقة.*$/g, "")
+      .replace(/\s*الموسم(?:\s*\d+)?.*$/g, "");
+    base = base
+      .replace(/^(?:انمي|مسلسل|فيلم|افلام انمي|افلام)\s*[:：\-]?\s*/i, "")
+      .replace(/\s*(?:مترجمة|مترجم|اون لاين|كاملة|مشاهدة|والاخيرة|الاخيرة)\s*$/i, "")
+      .trim();
+    return { isEpisode, episode, finale, season, base };
+  }
+
   let catsById = {};
   async function ensureCats() {
     const r = await tc("categories", { per_page: 100, _fields: "id,name,count,slug" });
@@ -326,6 +358,114 @@
     const item = items[0];
     item.desc = stripHtml((p.content && p.content.rendered) || "");
     return item;
+  }
+
+  /* تجمع حلقات الأنمي/المسلسل من نفس العنوان عبر بحث WP وتجميعها بالأرقام */
+  async function mapPool(items, limit, fn) {
+    const out = new Array(items.length);
+    let i = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) {
+        const idx = i++;
+        out[idx] = await fn(items[idx], idx);
+      }
+    });
+    await Promise.all(workers);
+    return out;
+  }
+
+  async function fetchEpisodes(item) {
+    const info = parseEpTitle(item.title);
+    if (!info.isEpisode) return [];
+    const baseEn = parseWpTitle(info.base).enPart;
+    const searchKey = baseEn || info.base;
+    let r1;
+    try {
+      r1 = await tc("search", { search: searchKey, per_page: 100, subtype: "post", _fields: "id,title" });
+    } catch {
+      r1 = { json: null };
+    }
+    if (!r1.json || !r1.json.length) return [];
+    const total = r1.total || (r1.json || []).length;
+    const totalPages = Math.min(25, r1.totalPages || 1, Math.ceil(total / 100));
+    const rest = await mapPool(Array.from({ length: totalPages - 1 }, (_, k) => k + 2), 4, (pg) =>
+      tc("search", { search: searchKey, page: pg, per_page: 100, subtype: "post", _fields: "id,title" })
+    );
+    const all = [...r1.json, ...rest.flatMap((r) => r.json || [])];
+    const baseN = norm(info.base);
+    const byId = new Map();
+    all.forEach((x) => {
+      const t = stripHtml(x.title && (x.title.rendered || x.title));
+      const p = parseEpTitle(t);
+      if (!p.isEpisode) return;
+      if (!norm(t).includes(baseN)) return;
+      byId.set(x.id, { id: x.id, title: t, season: p.season, episode: p.episode, finale: p.finale });
+    });
+    const list = [...byId.values()];
+    if (!list.length) return [];
+    const groups = new Map();
+    list.forEach((e) => {
+      if (!groups.has(e.season)) groups.set(e.season, []);
+      groups.get(e.season).push(e);
+    });
+    return [...groups.keys()]
+      .sort((a, b) => a - b)
+      .map((s) => ({
+        season: s,
+        items: groups
+          .get(s)
+          .slice()
+          .sort((a, b) => (a.finale ? 1 : 0) - (b.finale ? 1 : 0) || a.episode - b.episode),
+      }));
+  }
+
+  function episodesHtml(groups, currentId) {
+    return groups
+      .map((g) => {
+        const head = g.season ? "الموسم " + fa(g.season) : "الحلقات";
+        const cells = g.items
+          .map(
+            (e) =>
+              '<a class="ep-btn' +
+              (e.id === currentId ? " current" : "") +
+              '" href="#/watch/' +
+              e.id +
+              '" title="' +
+              esc(e.title) +
+              '">' +
+              (e.finale ? "الأخيرة" : fa(e.episode)) +
+              "</a>"
+          )
+          .join("");
+        return (
+          '<div class="ep-block"><h3 class="ep-seas">' +
+          head +
+          ' <span class="ep-count">' +
+          fa(g.items.length) +
+          "</span></h3><div class=\"ep-grid\">" +
+          cells +
+          "</div></div>"
+        );
+      })
+      .join("");
+  }
+
+  /* يحمّل الحلقات في مكان خالٍ داخل الصفحة الحالية */
+  async function loadEpisodes(item, wrap) {
+    if (!wrap) return;
+    let groups = [];
+    try {
+      groups = await fetchEpisodes(item);
+    } catch (e) {}
+    if (!document.body.contains(wrap)) return;
+    const sec = wrap.closest("section");
+    if (!groups.length) {
+      if (sec) sec.style.display = "none";
+      return;
+    }
+    wrap.innerHTML = episodesHtml(groups, item.id);
+    if (sec) sec.style.display = "";
+    observeReveals();
   }
 
   /* ---------- العرض ---------- */
@@ -747,6 +887,14 @@
       const item = await fetchPost(params.id);
       if (!item) throw new Error("لم نجد هذا العنصر");
 
+      const epsInfo = parseEpTitle(item.title);
+      const showsEps = !!epsInfo.isEpisode;
+      const epsSection = showsEps
+        ? '<section class="section reveal" id="epsSection"><div class="section-head"><h2>🗂 كل حلقات ' +
+          esc(epsInfo.base) +
+          '</h2></div><div class="ep-wrap"><p class="ep-loading">جاري تحميل كل الحلقات…</p></div></section>'
+        : "";
+
       const rating = getRating(item.id);
       let stars = "";
       for (let i = 1; i <= 5; i++) {
@@ -794,6 +942,7 @@
         "</span></div>" +
         (item.desc ? '<p class="overview">' + esc(item.desc) + "</p>" : "") +
         "</div></div></div></section>" +
+        epsSection +
         (related.length
           ? '<section class="section reveal"><div class="section-head"><h2>الأحدث في نفس القسم</h2></div>' +
             gridHtml(related) +
@@ -813,6 +962,7 @@
           $(".rating-note").textContent = rating === v ? "قيّم الفيلم" : "بصّام: " + fa(v) + "/5";
         })
       );
+      if (showsEps) loadEpisodes(item, $("#epsSection .ep-wrap"));
       bindGlobal();
       observeReveals();
     } catch (e) {
@@ -836,6 +986,12 @@
         setLoading(false);
         return;
       }
+      const epsInfo = parseEpTitle(item.title);
+      const epsSection = epsInfo.isEpisode
+        ? '<section class="section reveal" id="epsSection"><div class="section-head"><h2>🗂 كل حلقات ' +
+          esc(epsInfo.base) +
+          '</h2></div><div class="ep-wrap"><p class="ep-loading">جاري تحميل كل الحلقات…</p></div></section>'
+        : "";
       app.innerHTML =
         '<div class="watch">' +
         '<div class="section-head"><h2>▶ ' +
@@ -852,8 +1008,10 @@
         '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب فتح <a href="' +
         esc(item.link) +
         '?embedScreen=true" target="_blank" rel="noopener" style="color:var(--accent)">النافذة الأصلية</a></p>' +
+        epsSection +
         "</div>";
       addHistory(item);
+      if (epsInfo.isEpisode) loadEpisodes(item, $("#epsSection .ep-wrap"));
       bindGlobal();
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر التشغيل: ' + esc(e.message) + "</div>";
