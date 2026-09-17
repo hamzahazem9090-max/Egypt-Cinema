@@ -516,6 +516,8 @@
             (e) =>
               '<a class="ep-btn' +
               (e.id === currentId ? " current" : "") +
+              '" data-ep="' +
+              e.id +
               '" href="#/watch/' +
               e.id +
               '" title="' +
@@ -538,6 +540,68 @@
       .join("");
   }
 
+  /* قائمة الحلقات المسطّحة للتنقل السريع بينها */
+  let epList = [];
+
+  function renderEpNav(currentId) {
+    const nav = document.querySelector("#epNav");
+    if (!nav) return;
+    if (!epList.length) {
+      nav.innerHTML = "";
+      return;
+    }
+    const i = epList.findIndex((e) => String(e.id) === String(currentId));
+    const prev = i > 0 ? epList[i - 1] : null;
+    const next = i >= 0 && i < epList.length - 1 ? epList[i + 1] : null;
+    if (!prev && !next) {
+      nav.innerHTML = "";
+      return;
+    }
+    const cell = (e, dir) =>
+      e
+        ? '<a class="ep-nav-btn" data-ep="' +
+          e.id +
+          '" href="#/watch/' +
+          e.id +
+          '">' +
+          (dir === "prev" ? "‹ " : "") +
+          "الحلقة " +
+          (e.finale ? "الأخيرة" : fa(e.episode)) +
+          (dir === "next" ? " ›" : "") +
+          "</a>"
+        : '<span class="ep-nav-btn disabled"></span>';
+    nav.innerHTML = cell(prev, "prev") + cell(next, "next");
+  }
+
+  /* تبديل الحلقة داخل نفس الصفحة بدون إعادة بناء كاملة */
+  async function switchEpisode(id) {
+    const iframe = document.querySelector("#watchIframe");
+    if (!iframe) {
+      location.hash = "#/watch/" + id;
+      return;
+    }
+    try {
+      const item = await fetchPost(id);
+      if (!item || !item.link) throw new Error("no link");
+      iframe.src = item.link + "?embedScreen=true";
+      const t = document.querySelector("#watchTitle");
+      if (t) t.innerHTML = "▶ " + esc(item.title) + (item.year ? " (" + esc(item.year) + ")" : "");
+      setDocTitle(item.title);
+      document.querySelectorAll(".ep-btn").forEach((b) => b.classList.toggle("current", String(b.dataset.ep) === String(id)));
+      addHistory(item);
+      renderEpNav(id);
+      const wf = document.querySelector(".watch-frame");
+      if (wf) wf.scrollIntoView({ behavior: "smooth", block: "start" });
+      try {
+        history.replaceState(null, "", "#/watch/" + id);
+      } catch (e2) {
+        location.hash = "#/watch/" + id;
+      }
+    } catch (e) {
+      location.hash = "#/watch/" + id;
+    }
+  }
+
   /* يحمّل الحلقات في مكان خالٍ داخل الصفحة الحالية */
   async function loadEpisodes(item, wrap) {
     if (!wrap) return;
@@ -549,17 +613,32 @@
     const sec = wrap.closest("section");
     if (!groups.length) {
       if (sec) sec.style.display = "none";
+      epList = [];
+      renderEpNav("");
       return;
     }
     wrap.innerHTML = episodesHtml(groups, item.id);
+    epList = groups.reduce((acc, g) => acc.concat(g.items), []);
+    renderEpNav(item.id);
     if (sec) sec.style.display = "";
     observeReveals();
   }
 
   /* ---------- العرض ---------- */
+  let loadingTimer = null;
   function setLoading(mode) {
     const el = document.querySelector("#loadingTop");
-    if (el) el.style.display = mode ? "flex" : "none";
+    if (!el) return;
+    clearTimeout(loadingTimer);
+    if (mode) {
+      loadingTimer = setTimeout(() => { el.style.display = "flex"; }, 220);
+    } else {
+      el.style.display = "none";
+    }
+  }
+
+  function setDocTitle(title) {
+    document.title = title ? title + " — Egypt Cinema" : "Egypt Cinema — مشاهدة الأفلام اون لاين";
   }
 
   const setActiveNav = (key) => {
@@ -706,7 +785,10 @@
   const FILM_CATS = [3, 4, 5];
   const SERIES_CATS = [7, 8, 9];
 
+  let heroTimer = null;
+
   views.home = async () => {
+    clearInterval(heroTimer);
     setActiveNav("home");
     setLoading(true);
     try {
@@ -769,7 +851,9 @@
 
       let hero = heroHtml();
       const renderHero = () => {
-        $("#heroSlot").innerHTML = hero;
+        const slotEl = $("#heroSlot");
+        if (!slotEl) return;
+        slotEl.innerHTML = hero;
         document.querySelectorAll("[data-hdot]").forEach((d) =>
           d.addEventListener("click", () => {
             idx = +d.dataset.hdot;
@@ -777,12 +861,12 @@
             renderHero();
           })
         );
-        $("#heroSlot [data-hprev]")?.addEventListener("click", () => {
+        slotEl.querySelector("[data-hprev]")?.addEventListener("click", () => {
           idx = (idx - 1 + slides.length) % slides.length;
           hero = heroHtml();
           renderHero();
         });
-        $("#heroSlot [data-hnext]")?.addEventListener("click", () => {
+        slotEl.querySelector("[data-hnext]")?.addEventListener("click", () => {
           idx = (idx + 1) % slides.length;
           hero = heroHtml();
           renderHero();
@@ -796,8 +880,19 @@
           .map((c) => '<a class="filter-chip" href="' + browseQuery({ cat: c.id }) + '">' + esc(c.name) + "</a>")
           .join("");
 
+      const recent = Object.values(loadLib().history)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        .slice(0, 8)
+        .map((x) => snapshotToItem(x.snapshot));
+      const continueSection = recent.length
+        ? '<section class="section reveal"><div class="section-head"><h2>⏱ متابعة المشاهدة</h2></div>' +
+          gridHtml(recent) +
+          "</section>"
+        : "";
+
       app.innerHTML =
         '<div id="heroSlot"></div>' +
+        continueSection +
         '<section class="section reveal"><div class="section-head"><h2>🎬 أحدث الأفلام</h2>' +
         '<a class="see-all" href="' + browseQuery({ cat: FILM_CATS.join(",") }) + '">عرض الكل</a></div>' +
         (filmCats.length ? '<div class="filter-chips">' + pills(filmCats) + "</div>" : "") +
@@ -811,6 +906,41 @@
       renderHero();
       bindGlobal();
       observeReveals();
+
+      /* تشغيل تلقائي للهيرو + إيقاف عند المرور/التركيز + سحب بالإصبع */
+      const heroSlot = $("#heroSlot");
+      const goHero = (step) => {
+        idx = (idx + step + slides.length) % slides.length;
+        hero = heroHtml();
+        renderHero();
+      };
+      const startHero = () => {
+        clearInterval(heroTimer);
+        if (slides.length > 1) heroTimer = setInterval(() => goHero(1), 6500);
+      };
+      const stopHero = () => clearInterval(heroTimer);
+      if (heroSlot) {
+        heroSlot.addEventListener("mouseenter", stopHero);
+        heroSlot.addEventListener("mouseleave", startHero);
+        heroSlot.addEventListener("focusin", stopHero);
+        heroSlot.addEventListener("focusout", startHero);
+        let sx = 0;
+        heroSlot.addEventListener(
+          "touchstart",
+          (e) => { sx = e.touches[0].clientX; },
+          { passive: true }
+        );
+        heroSlot.addEventListener(
+          "touchend",
+          (e) => {
+            const dx = (e.changedTouches[0].clientX || 0) - sx;
+            if (Math.abs(dx) > 45) goHero(dx < 0 ? 1 : -1);
+          },
+          { passive: true }
+        );
+      }
+      startHero();
+      setDocTitle("");
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر تحميل البيانات: ' + esc(e.message) + "</div>";
     }
@@ -819,6 +949,7 @@
 
   views.movies = async (params) => {
     setActiveNav("browse");
+    setDocTitle("تصفح المحتوى");
     setLoading(true);
     try {
       const cats = await ensureCats();
@@ -977,6 +1108,7 @@
     try {
       const item = await fetchPost(params.id);
       if (!item) throw new Error("لم نجد هذا العنصر");
+      setDocTitle(item.title);
 
       const epsInfo = parseEpTitle(item.title);
       const showsEps = !!epsInfo.isEpisode;
@@ -987,6 +1119,7 @@
         : "";
 
       const rating = getRating(item.id);
+      let curRating = rating || 0;
       let stars = "";
       for (let i = 1; i <= 5; i++) {
         stars += '<button data-rate="' + i + '" class="' + (rating && i <= rating ? "on" : "") + '">★</button>';
@@ -1048,9 +1181,12 @@
       document.querySelectorAll(".stars button").forEach((b) =>
         b.addEventListener("click", () => {
           const v = +b.dataset.rate;
-          setRating(item, rating === v ? null : v);
-          document.querySelectorAll(".stars button").forEach((x) => x.classList.toggle("on", +x.dataset.rate <= (rating === v ? 0 : v)));
-          $(".rating-note").textContent = rating === v ? "قيّم الفيلم" : "بصّام: " + fa(v) + "/5";
+          const val = curRating === v ? 0 : v;
+          setRating(item, val || null);
+          curRating = val;
+          document.querySelectorAll(".stars button").forEach((x) => x.classList.toggle("on", +x.dataset.rate <= val));
+          $(".rating-note").textContent = val ? "بصّام: " + fa(val) + "/5" : "قيّم الفيلم";
+          if (val) toast("تم التقييم " + fa(val) + "/5");
         })
       );
       if (showsEps) loadEpisodes(item, $("#epsSection .ep-wrap"));
@@ -1065,6 +1201,7 @@
   views.watch = async (params) => {
     setActiveNav("");
     setLoading(true);
+    epList = [];
     try {
       const item = await fetchPost(params.id);
       if (!item || !item.link) {
@@ -1083,9 +1220,10 @@
           esc(epsInfo.base) +
           '</h2></div><div class="ep-wrap"><p class="ep-loading">جاري تحميل كل الحلقات…</p></div></section>'
         : "";
+      setDocTitle(item.title);
       app.innerHTML =
         '<div class="watch">' +
-        '<div class="section-head"><h2>▶ ' +
+        '<div class="section-head"><h2 id="watchTitle">▶ ' +
         esc(item.title) +
         (item.year ? " (" + esc(item.year) + ")" : "") +
         '</h2><a class="see-all" href="#/movie/' +
@@ -1096,6 +1234,7 @@
         '?embedScreen=true" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin" title="' +
         esc(item.title) +
         '"></iframe></div>' +
+        '<div class="ep-nav" id="epNav"></div>' +
         '<p style="color:var(--muted);font-size:0.85rem;margin-top:10px">إذا لم يعمل المشغل، جرّب فتح <a href="' +
         esc(item.link) +
         '?embedScreen=true" target="_blank" rel="noopener" style="color:var(--accent)">النافذة الأصلية</a></p>' +
@@ -1117,6 +1256,7 @@
       const q = (params.q || "").trim();
       $("#searchInput").value = q;
       syncSearchClear();
+      setDocTitle(q ? "بحث: " + q : "بحث");
       if (!q) {
         app.innerHTML = '<div class="empty"><div class="icon">🔍</div><p>اكتب اسم فيلم في خانة البحث بالأعلى</p></div>';
         setLoading(false);
@@ -1167,6 +1307,7 @@
       history: "🕒 آخر المشاهدة",
       rated: "⭐ قيمت عليها",
     };
+    setDocTitle((titles[params.type] || "مكتبتي").replace(/^[^\s]+\s/, ""));
     app.innerHTML =
       '<h1 class="page-title" style="margin:24px 0 0">' +
       (titles[params.type] || "مكتبتي") +
@@ -1192,6 +1333,7 @@
 
   async function route() {
     const { parts, params } = parse(location.hash);
+    clearInterval(heroTimer);
     jumpTop();
     if (!parts.length || parts[0] === "") {
       await views.home(params);
@@ -1217,7 +1359,10 @@
   $("#searchForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const q = $("#searchInput").value.trim();
-    if (q) location.hash = "#/search?q=" + encodeURIComponent(q);
+    if (q) {
+      pushRecent(q);
+      location.hash = "#/search?q=" + encodeURIComponent(q);
+    }
   });
 
   /* ---------- البحث الفوري (درج نتائج صغير) ---------- */
@@ -1339,6 +1484,50 @@ const merged = dedupeSeries(poolRows(q));
       .trim();
   }
 
+  /* ---------- سجل البحث الأخير ---------- */
+  const LS_RECENT = "tc_recent_searches_v1";
+
+  function getRecent() {
+    try {
+      const a = JSON.parse(localStorage.getItem(LS_RECENT) || "[]");
+      return Array.isArray(a) ? a.slice(0, 6) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function pushRecent(q) {
+    q = (q || "").trim();
+    if (!q) return;
+    const arr = getRecent().filter((x) => x !== q);
+    arr.unshift(q);
+    try {
+      localStorage.setItem(LS_RECENT, JSON.stringify(arr.slice(0, 6)));
+    } catch {}
+  }
+
+  function renderRecentDrop() {
+    const rec = getRecent();
+    if (!rec.length) return;
+    searchRows = [];
+    lastQuery = "";
+    searchDrop.innerHTML =
+      rec
+        .map(
+          (q) =>
+            '<a class="search-drop-item recent" data-recent="' +
+            esc(q) +
+            '" href="#/search?q=' +
+            encodeURIComponent(q) +
+            '"><span class="s-thumb">🕒</span><span class="s-info"><span class="s-title">' +
+            esc(q) +
+            '</span><span class="s-year">بحث سابق</span></span></a>'
+        )
+        .join("") +
+      '<a class="search-drop-item clear-recent" data-clearrecent>مسح سجل البحث</a>';
+    searchDrop.hidden = false;
+  }
+
   function syncSearchClear() {
     searchClear.hidden = !searchInput.value.trim();
   }
@@ -1348,7 +1537,8 @@ const merged = dedupeSeries(poolRows(q));
     clearTimeout(searchTimer);
     const q = searchInput.value.trim();
     if (q.length < 2) {
-      closeSearchDrop();
+      if (!q) renderRecentDrop();
+      else closeSearchDrop();
       return;
     }
     const local = poolRows(q);
@@ -1366,6 +1556,43 @@ const merged = dedupeSeries(poolRows(q));
     syncSearchClear();
     closeSearchDrop();
     searchInput.focus();
+  });
+
+  searchInput.addEventListener("focus", () => {
+    if (!searchInput.value.trim()) renderRecentDrop();
+  });
+
+  searchDrop.addEventListener("click", (e) => {
+    const rec = e.target.closest("[data-recent]");
+    const clr = e.target.closest("[data-clearrecent]");
+    if (clr) {
+      e.preventDefault();
+      try { localStorage.removeItem(LS_RECENT); } catch {}
+      closeSearchDrop();
+      return;
+    }
+    if (rec) {
+      const q = rec.dataset.recent;
+      searchInput.value = q;
+      syncSearchClear();
+      pushRecent(q);
+      closeSearchDrop();
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const ae = document.activeElement;
+    const tag = (ae && ae.tagName) || "";
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(tag) || (ae && ae.isContentEditable);
+    if (!typing && e.key === "/") {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
   });
 
   window.addEventListener("hashchange", closeSearchDrop);
@@ -1432,6 +1659,18 @@ const merged = dedupeSeries(poolRows(q));
     fav.classList.toggle("active", nowFav);
     fav.textContent = nowFav ? "♥" : "♡";
     toast(nowFav ? "أضيف للمفضلة" : "أُزيلت من المفضلة");
+  });
+
+  /* تبديل الحلقة داخل نفس الصفحة بدون إعادة تحميل كاملة */
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".ep-btn, .ep-nav-btn");
+    if (!btn || btn.classList.contains("disabled")) return;
+    const id =
+      btn.dataset.ep ||
+      (((btn.getAttribute("href") || "").match(/watch\/(\d+)/) || [])[1] || "");
+    if (!id) return;
+    e.preventDefault();
+    switchEpisode(id);
   });
 
   /* زر العودة للأعلى + تظليل الهيدر عند التمرير */

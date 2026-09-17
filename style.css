@@ -353,6 +353,20 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   cursor: default;
 }
 
+.search-drop-item.clear-recent {
+  justify-content: center;
+  padding: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search-drop-item.clear-recent:hover { color: var(--text-bright); background: rgba(255, 255, 255, 0.06); }
+
+.search-drop-item.recent .s-thumb { font-size: 0.95rem; }
+
 /* ============================================================
    Buttons
    ============================================================ */
@@ -1173,6 +1187,36 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
 .ep-btn.current { background: linear-gradient(180deg, #ff1622, #c90813); border-color: var(--accent); color: #fff; box-shadow: 0 2px 14px rgba(229, 9, 20, 0.4); }
 
 .ep-loading { color: var(--muted); font-size: 0.85rem; }
+
+.ep-nav { display: flex; gap: 10px; margin-top: 14px; }
+
+.ep-nav-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.86rem;
+  text-align: center;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.14s var(--ease), box-shadow 0.2s ease;
+}
+
+.ep-nav-btn:hover {
+  background: rgba(229, 9, 20, 0.12);
+  border-color: var(--accent);
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(229, 9, 20, 0.18);
+}
+
+.ep-nav-btn:active { transform: scale(0.98); }
+.ep-nav-btn.disabled { opacity: 0; pointer-events: none; }
 
 /* ============================================================
    States
