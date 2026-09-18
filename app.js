@@ -306,9 +306,10 @@
     return items;
   }
 
-  /* ضم حلقات المسلسل في بوستر واحد عند العرض في الشبكة/القائمة
-     (كل موسم/جزء ببوستر مستقل) */
-  function dedupeSeries(items) {
+  /* ضم حلقات المسلسل في بوستر واحد عند العرض في الشبكة/القائمة.
+     الوضع الافتراضي: كل موسم/جزء ببوستر مستقل.
+     الوضع "series": ضم كل المواسم في بوستر واحد (يُستخدم في نتائج البحث). */
+  function dedupeSeries(items, mode) {
     const out = [];
     const seen = new Map();
     items.forEach((it) => {
@@ -317,7 +318,7 @@
         out.push(it);
         return;
       }
-      const key = norm(p.base) + (p.season ? "|s" + p.season : "");
+      const key = norm(p.base) + (mode === "series" ? "" : p.season ? "|s" + p.season : "");
       if (!norm(p.base)) {
         out.push(it);
         return;
@@ -325,7 +326,7 @@
       let rep = seen.get(key);
       if (!rep) {
         rep = Object.assign({}, it, {
-          title: p.base + (p.season ? " - الموسم " + fa(p.season) : ""),
+          title: mode === "series" ? p.base : p.base + (p.season ? " - الموسم " + fa(p.season) : ""),
           seriesCount: 1,
           seriesBase: p.base,
           seriesSeason: p.season || 0,
@@ -348,6 +349,26 @@
     return out;
   }
 
+  /* ترتيب نتائج البحث حسب قربها من الاستعلام (الأقرب أولًا) */
+  function searchScore(it, q) {
+    const qN = norm(q);
+    if (!qN) return 9999;
+    const bN = norm(it.seriesBase || it.title || "");
+    if (!bN) return 900;
+    const qToks = qN.split(" ");
+    const bToks = new Set(bN.split(" "));
+    const hits = qToks.filter((t) => t && bToks.has(t)).length;
+    let score;
+    if (bN === qN) score = 0;
+    else if (qToks.length === 1 && bToks.has(qToks[0])) score = bN.split(" ")[0] === qToks[0] ? 20 : 60;
+    else if (bN.startsWith(qN)) score = 30;
+    else if (bN.includes(qN)) score = 60;
+    else if (qToks.length > 1 && hits === qToks.length) score = 80;
+    else if (hits) score = 200 - hits * 60;
+    else score = 1000;
+    return score;
+  }
+
   /* قائمة posts: بحث أو استعراض (fresh دائمًا) */
   async function fetchPosts(o) {
     const per_page = o.per_page || 40;
@@ -359,15 +380,14 @@
     if (o.search) {
       const r = await tc("search", {
         search: o.search,
-        per_page: Math.min(per_page, 100),
+        per_page: 100,
         subtype: "post",
         _fields: "id,title,url",
       });
-      const found = r.json && r.json.length ? r.json : [];
-      if (!found.length) return { items: [], total: 0, totalPages: 1 };
+      if (!r.json || !r.json.length) return { items: [], total: 0, totalPages: 1 };
       if (o.fast) {
         return {
-          items: found.map((x) => {
+          items: r.json.map((x) => {
             const title = stripHtml(x.title && (x.title.rendered || x.title));
             const parsed = parseWpTitle(title);
             return {
@@ -386,14 +406,50 @@
           totalPages: r.totalPages,
         };
       }
+      /* تجميع كل صفحات سيرش Top Cinema (لأن كل حلقة نتيجة مستقلة) */
+      const maxPages = o.pages || 1;
+      const totalPagesS = Math.min(maxPages, r.totalPages || 1);
+      const pagesRows = [r.json];
+      if (totalPagesS > 1) {
+        const rest = await mapPool(
+          Array.from({ length: totalPagesS - 1 }, (_, k) => k + 2),
+          4,
+          (pg) =>
+            tc("search", {
+              search: o.search,
+              page: pg,
+              per_page: 100,
+              subtype: "post",
+              _fields: "id,title,url",
+            })
+        );
+        rest.forEach((x) => pagesRows.push(x.json || []));
+      }
+      const seenIds = new Set();
+      const found = [];
+      pagesRows.forEach((rows) =>
+        (rows || []).forEach((x) => {
+          if (x && x.id && !seenIds.has(x.id)) {
+            seenIds.add(x.id);
+            found.push(x);
+          }
+        })
+      );
+      if (!found.length) return { items: [], total: 0, totalPages: 1 };
       const ids = found.map((x) => x.id);
-      const d = await tc("posts", {
-        include: ids.join(","),
-        per_page: 100,
-        _fields: "id,title,link,date,categories,featured_media",
-      });
       const dm = {};
-      for (const x of d.json || []) dm[x.id] = x;
+      const batches = [];
+      for (let i = 0; i < ids.length; i += 90) {
+        batches.push(
+          tc("posts", {
+            include: ids.slice(i, i + 90).join(","),
+            per_page: 100,
+            _fields: "id,title,link,date,categories,featured_media",
+          })
+        );
+      }
+      const db = await Promise.all(batches);
+      db.forEach((d) => (d.json || []).forEach((x) => (dm[x.id] = x)));
       posts = found.map((x) => Object.assign({}, dm[x.id] || {}, { id: x.id }));
       total = r.total;
       totalPages = r.totalPages;
@@ -1262,15 +1318,23 @@
         setLoading(false);
         return;
       }
-      const res = await fetchPosts({ search: q, per_page: 40 });
+      const res = await fetchPosts({ search: q, per_page: 100, pages: 8 });
       const items = res.items;
+      const qn = norm(q);
+      const all = dedupeSeries(items, "series")
+        .map((it) => ({ it, score: searchScore(it, qn) }))
+        .filter((x) => x.score < 500);
+      all.sort((a, b) => a.score - b.score);
+      const posters = all.map((x) => x.it);
       const head =
         '<div class="search-head"><h2>نتائج البحث عن: <span style="color:var(--accent)">' +
         esc(q) +
         "</span></h2>" +
-        '<p class="search-note">كما تظهر في Top Cinema</p></div>';
-      app.innerHTML = items.length
-        ? head + '<div class="row">' + dedupeSeries(items).map(cardHtml).join("") + "</div>"
+        '<p class="search-note">' +
+        (posters.length ? "مرتبة حسب الأقرب لبحثك — من مجموع " + fa(res.total) + " نتيجة في المصدر" : "") +
+        "</p></div>";
+      app.innerHTML = posters.length
+        ? head + '<div class="row">' + posters.map(cardHtml).join("") + "</div>"
         : head + '<div class="empty"><div class="icon">🎬</div><p>لا توجد نتائج في مصدرنا الحالي لهذه الكلمة</p></div>';
       bindGlobal();
       observeReveals();
@@ -1441,7 +1505,7 @@
 
   async function openSearchDrop(q) {
     lastQuery = q;
-const local = dedupeSeries(poolRows(q));
+const local = dedupeSeries(poolRows(q), "series");
       if (local.length) {
         activeQ = q;
         searchRows = local.slice(0, 7);
@@ -1459,14 +1523,14 @@ const local = dedupeSeries(poolRows(q));
     }
     if (lastQuery !== q || searchInput.value.trim() !== q) return;
     rememberItems(res.items);
-const merged = dedupeSeries(poolRows(q));
+const merged = dedupeSeries(poolRows(q), "series");
     if (!merged.length) {
       searchDrop.innerHTML = '<div class="search-drop-item none">لا توجد نتائج لـ "' + esc(q) + '"</div>';
       searchDrop.hidden = false;
       return;
     }
     activeQ = q;
-    searchRows = dedupeSeries(merged).slice(0, 7);
+    searchRows = dedupeSeries(merged, "series").slice(0, 7);
     renderSearchDrop();
   }
 
@@ -1545,7 +1609,7 @@ const merged = dedupeSeries(poolRows(q));
     if (local.length) {
       lastQuery = q;
       activeQ = q;
-      searchRows = local.slice(0, 7);
+      searchRows = dedupeSeries(local, "series").slice(0, 7);
       renderSearchDrop();
     }
     searchTimer = setTimeout(() => openSearchDrop(q), 250);
