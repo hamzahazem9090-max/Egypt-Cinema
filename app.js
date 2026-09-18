@@ -724,6 +724,15 @@
   }
 
   /* يحمّل الحلقات في مكان خالٍ داخل الصفحة الحالية */
+  function renderEpGroups(groups, wrap, currentId) {
+    wrap.innerHTML = episodesHtml(groups, currentId);
+    epList = groups.reduce((acc, g) => acc.concat(g.items), []);
+    renderEpNav(currentId);
+    const sec = wrap.closest("section");
+    if (sec) sec.style.display = "";
+    observeReveals();
+  }
+
   async function loadEpisodes(item, wrap) {
     if (!wrap) return;
     let groups = [];
@@ -738,10 +747,74 @@
       renderEpNav("");
       return;
     }
-    wrap.innerHTML = episodesHtml(groups, item.id);
-    epList = groups.reduce((acc, g) => acc.concat(g.items), []);
-    renderEpNav(item.id);
-    if (sec) sec.style.display = "";
+    renderEpGroups(groups, wrap, item.id);
+  }
+
+  /* أجزاء المسلسل كبوسترات منفصلة (الجزء الأول، الثاني...) بصورها الخاصة */
+  async function loadParts(item, base, sec, titleEl, epsWrap) {
+    if (!sec) return;
+    sec.style.display = "none";
+    let groups = [];
+    try {
+      groups = await fetchEpisodes(item);
+    } catch (e) {}
+    if (!document.body.contains(sec)) return;
+    if (groups.length && epsWrap && document.body.contains(epsWrap)) renderEpGroups(groups, epsWrap, item.id);
+    const baseId = String(item.id);
+    const parts = [];
+    (groups || []).forEach((g) => {
+      const list = g.items || [];
+      if (!list.length || !g.season) return;
+      let rep = list[0];
+      list.forEach((e) => {
+        if ((e.episode || 0) > (rep.episode || 0) || ((e.episode || 0) === (rep.episode || 0) && e.finale && !rep.finale)) rep = e;
+      });
+      parts.push({ id: rep.id, season: g.season, count: list.length, isCurrent: list.some((e) => String(e.id) === baseId) });
+    });
+    if (parts.length < 2) return;
+    parts.sort((a, b) => a.season - b.season);
+    const dm = {};
+    try {
+      const d = await tc("posts", { include: parts.map((p) => p.id).join(","), per_page: 100, _fields: "id,featured_media,date" });
+      (d.json || []).forEach((x) => (dm[x.id] = x));
+    } catch {}
+    const mm = {};
+    const mids = [...new Set(parts.map((p) => (dm[p.id] || {}).featured_media).filter(Boolean))];
+    if (mids.length) {
+      try {
+        const r = await tc("media", { include: mids.join(","), per_page: 100, _fields: "id,source_url" });
+        (r.json || []).forEach((m) => (mm[m.id] = m.source_url));
+      } catch {}
+    }
+    if (!document.body.contains(sec)) return;
+    if (titleEl) titleEl.textContent = base;
+    sec.querySelector(".part-row").innerHTML = parts
+      .map((p) => {
+        const img = mm[(dm[p.id] || {}).featured_media] || "";
+        const year = dm[p.id] && dm[p.id].date ? String(new Date(dm[p.id].date).getUTCFullYear()) : "";
+        const it = {
+          id: p.id,
+          title: base + " - الجزء " + arSeason(p.season),
+          year,
+          cats: [],
+          catNames: [],
+          image: img,
+          link: "",
+          desc: "",
+          isSeries: true,
+          seriesCount: p.count,
+        };
+        return (
+          '<div class="part-item' +
+          (p.isCurrent ? " current" : "") +
+          '">' +
+          cardHtml(it) +
+          (p.isCurrent ? '<span class="part-current">الآن</span>' : "") +
+          "</div>"
+        );
+      })
+      .join("");
+    sec.style.display = "";
     observeReveals();
   }
 
@@ -1238,6 +1311,11 @@
           esc(epsInfo.base) +
           '</h2></div><div class="ep-wrap"><p class="ep-loading">جاري تحميل كل الحلقات…</p></div></section>'
         : "";
+      const partsSection = showsEps
+        ? '<section class="section reveal" id="partsSection" style="display:none"><div class="section-head"><h2>🎬 أجزاء <span class="parts-title">' +
+          esc(epsInfo.base) +
+          '</span></h2></div><div class="part-row"></div></section>'
+        : "";
 
       const rating = getRating(item.id);
       let curRating = rating || 0;
@@ -1287,6 +1365,7 @@
         "</span></div>" +
         (item.desc ? '<p class="overview">' + esc(item.desc) + "</p>" : "") +
         "</div></div></div></section>" +
+        partsSection +
         epsSection +
         (related.length
           ? '<section class="section reveal"><div class="section-head"><h2>الأحدث في نفس القسم</h2></div>' +
@@ -1310,7 +1389,7 @@
           if (val) toast("تم التقييم " + fa(val) + "/5");
         })
       );
-      if (showsEps) loadEpisodes(item, $("#epsSection .ep-wrap"));
+      if (showsEps) loadParts(item, epsInfo.base, $("#partsSection"), $(".parts-title"), $("#epsSection .ep-wrap"));
       bindGlobal();
       observeReveals();
     } catch (e) {

@@ -1132,6 +1132,44 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
 
 .ep-block + .ep-block { margin-top: 22px; }
 
+/* صف أجزاء المسلسل (بوسترات منفصلة لكل جزء) */
+.part-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.part-item {
+  position: relative;
+  flex: 0 0 176px;
+  max-width: 176px;
+}
+
+.part-item > .card {
+  width: 100%;
+  height: 100%;
+}
+
+.part-item.current .card-poster {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 6px 24px rgba(229, 9, 20, 0.35);
+}
+
+.part-current {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
 .ep-seas {
   display: flex;
   align-items: center;
@@ -1712,6 +1750,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .watch-frame { border-radius: 12px; }
   .ep-grid { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 7px; }
   .ep-btn { height: 40px; font-size: 0.8rem; }
+  .part-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
+  .part-item { flex: 0 0 128px; max-width: 128px; }
   .card-body { padding: 9px 10px 11px; }
   body { overflow-x: hidden; }
   .toast { max-width: calc(100vw - 32px); text-align: center; }
