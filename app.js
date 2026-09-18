@@ -211,6 +211,23 @@
     return tens[w] || 0;
   };
 
+  /* رقم الجزء/الموسم → كلمة عربية (الجزء الأول، الثاني، الثالث، الرابع، الحادي عشر…) */
+  function arSeason(n) {
+    n = +n || 0;
+    if (n <= 0) return "";
+    const ones = ["", "الأول", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع"];
+    const tbl = ones.concat([
+      "العاشر", "الحادي عشر", "الثاني عشر", "الثالث عشر", "الرابع عشر",
+      "الخامس عشر", "السادس عشر", "السابع عشر", "الثامن عشر", "التاسع عشر", "العشرون",
+    ]);
+    if (tbl[n]) return tbl[n];
+    const lead = ["", "الحادي", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع"][n % 10];
+    const tensW = { 20: "العشرون", 30: "الثلاثون", 40: "الأربعون", 50: "الخمسون", 60: "الستون", 70: "السبعون", 80: "الثمانون", 90: "التسعون" };
+    const t = n - (n % 10);
+    if (n % 10 === 0 && tensW[t]) return tensW[t];
+    return (lead || "") + " و" + (tensW[t] || fa(t));
+  }
+
   /* تحليل عنوان حلقة في Top Cinema مثل:
      "انمي ون بيس One Piece الحلقة 1178 مترجمة"
      "مسلسل X الموسم 2 الحلقة 5 مترجمة"
@@ -227,15 +244,22 @@
       if (/الاخيرة|الاخير|اخيرة|فينال|finale/i.test(t)) finale = true;
       if (!m && !finale) finale = true;
     }
-    /* رقم الموسم إن جاء رقمًا (٢ أو 14) أو كلمةً (السابع، الحادي عشر) */
+    /* رقم الموسم/الجزء إن جاء رقمًا (٢ أو 14) أو كلمةً (السابع، الحادي عشر) */
     let season = 0;
     const sDigit = t.match(/الموسم\s*(\d+)/i);
     const sWord = t.match(/الموسم\s+(\S+(?:\s+\S+)?)/i);
     if (sDigit) season = parseInt(sDigit[1], 10) || 0;
     else if (sWord) season = wordN(sWord[1]) || 0;
+    if (!season) {
+      const sDigit2 = t.match(/الجزء\s*(\d+)/i);
+      const sWord2 = t.match(/الجزء\s+(\S+(?:\s+\S+)?)/i);
+      if (sDigit2) season = parseInt(sDigit2[1], 10) || 0;
+      else if (sWord2) season = wordN(sWord2[1]) || 0;
+    }
     let base = t
       .replace(/\s*الحلقة.*$/g, "")
-      .replace(/\s*الموسم.*$/g, "");
+      .replace(/\s*الموسم.*$/g, "")
+      .replace(/\s*الجزء.*$/g, "");
     base = base
       .replace(/^(?:انمي|مسلسل|فيلم|افلام انمي|افلام)\s*[:：\-]?\s*/i, "")
       .replace(/\s*(?:مترجمة|مترجم|اون لاين|كاملة|مشاهدة|والاخيرة|الاخيرة)\s*$/i, "")
@@ -326,7 +350,10 @@
       let rep = seen.get(key);
       if (!rep) {
         rep = Object.assign({}, it, {
-          title: mode === "series" ? p.base : p.base + (p.season ? " - الموسم " + fa(p.season) : ""),
+          title:
+            mode === "series"
+              ? p.base
+              : p.base + (p.season ? " - الجزء " + arSeason(p.season) : ""),
           seriesCount: 1,
           seriesBase: p.base,
           seriesSeason: p.season || 0,
@@ -346,6 +373,35 @@
     out.forEach((rep) => {
       if (rep.seriesCount > 1 && rep.seriesLastId) rep.id = rep.seriesLastId;
     });
+    /* إن كانت السلسلة لها أجزاء مرقّمة، فحلقات "الجزء الأول" التي لم تُرقّم
+       في المصدر (تكتب "الحلقة X" بدون "الموسم") تُدمج في الجزء الأول أو تُسمّى به */
+    if (mode !== "series") {
+      const byBase = new Map();
+      out.forEach((r) => {
+        const k = "b|" + norm(r.seriesBase);
+        if (!byBase.has(k)) byBase.set(k, []);
+        byBase.get(k).push(r);
+      });
+      for (const arr of byBase.values()) {
+        const hasParts = arr.some((r) => r.seriesSeason > 0);
+        if (!hasParts) continue;
+        const zeros = arr.filter((r) => !r.seriesSeason);
+        const one = arr.find((r) => r.seriesSeason === 1);
+        zeros.forEach((z) => {
+          if (one) {
+            one.seriesCount += z.seriesCount;
+            if (z.seriesLastEp > one.seriesLastEp) {
+              one.seriesLastEp = z.seriesLastEp;
+              one.seriesLastId = z.seriesLastId;
+            }
+            out.splice(out.indexOf(z), 1);
+          } else {
+            z.title = (z.seriesBase || "") + " - الجزء الأول";
+            z.seriesSeason = 1;
+          }
+        });
+      }
+    }
     return out;
   }
 
@@ -530,13 +586,22 @@
       const t = stripHtml(x.title && (x.title.rendered || x.title));
       const p = parseEpTitle(t);
       if (!p.isEpisode) return;
-      if (!norm(t).includes(baseN)) return;
-      byId.set(x.id, { id: x.id, title: t, season: p.season, episode: p.episode, finale: p.finale });
+      /* اقبل الحلقة لو اسمها يبدأ بالمسلسل نفسه (أو بنفس الاسم بالضبط)،
+         بحيث لا تتسرّب حلقات أعمال أخرى تحمل نفس الكلمة في الاسم */
+      const bN = norm(p.base);
+      if (bN === baseN) {
+        byId.set(x.id, { id: x.id, title: t, season: p.season, episode: p.episode, finale: p.finale });
+        return;
+      }
+      if (bN.length > baseN.length && bN.slice(-baseN.length) === baseN && bN[bN.length - baseN.length - 1] === " ") {
+        byId.set(x.id, { id: x.id, title: t, season: p.season, episode: p.episode, finale: p.finale });
+      }
     });
     const list = [...byId.values()];
     if (!list.length) return [];
     const hasSeasons = list.some((e) => e.season > 0);
     const noSeasonsMany = !hasSeasons && list.length > 100;
+    if (hasSeasons) list.forEach((e) => { if (!e.season) e.season = 1; });
     const groups = new Map();
     list.forEach((e) => {
       if (noSeasonsMany) {
@@ -562,7 +627,7 @@
   function episodesHtml(groups, currentId) {
     return groups
       .map((g) => {
-        let head = g.season ? "الموسم " + fa(g.season) : "الحلقات";
+        let head = g.season ? "الجزء " + arSeason(g.season) : "الحلقات";
         if (g.kind === "chunk") {
           const es = g.items.map((i) => i.episode).filter(Boolean);
           head = es.length ? "الحلقة " + fa(Math.min.apply(null, es)) + " - " + fa(Math.max.apply(null, es)) : head;
@@ -1321,10 +1386,16 @@
       const res = await fetchPosts({ search: q, per_page: 100, pages: 8 });
       const items = res.items;
       const qn = norm(q);
-      const all = dedupeSeries(items, "series")
+      const all = dedupeSeries(items)
         .map((it) => ({ it, score: searchScore(it, qn) }))
         .filter((x) => x.score < 500);
-      all.sort((a, b) => a.score - b.score);
+      all.sort((a, b) => {
+        if (a.score !== b.score) return a.score - b.score;
+        const sa = a.it.seriesSeason || 0;
+        const sb = b.it.seriesSeason || 0;
+        if (sa !== sb) return sa - sb;
+        return 0;
+      });
       const posters = all.map((x) => x.it);
       const head =
         '<div class="search-head"><h2>نتائج البحث عن: <span style="color:var(--accent)">' +
