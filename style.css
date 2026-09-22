@@ -56,24 +56,42 @@ body {
   position: relative;
 }
 
-/* توهج محيطي هادئ خلف المحتوى (سينمائي) — بحركة بطيئة جدًا */
-body::before {
+/* شفق قطبي (أورورا) متحرك خلف المحتوى — موجات ضوء دافئة تنساب ببطء */
+body::before,
+body::after {
   content: "";
   position: fixed;
-  inset: -20%;
+  inset: -40%;
   z-index: -1;
   pointer-events: none;
-  background:
-    radial-gradient(1250px 800px at 18% 12%, rgba(229, 9, 20, 0.10), transparent 60%),
-    radial-gradient(1050px 760px at 84% 90%, rgba(120, 40, 210, 0.07), transparent 60%),
-    radial-gradient(780px 520px at 55% 46%, rgba(255, 255, 255, 0.025), transparent 70%);
-  animation: bgDrift 80s var(--ease) infinite alternate;
   will-change: transform;
 }
 
-@keyframes bgDrift {
-  0%   { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(2.2%, 1.6%, 0) scale(1.06); }
+body::before {
+  filter: blur(70px) saturate(130%);
+  background:
+    radial-gradient(46% 34% at 50% 50%, rgba(229, 9, 20, 0.15), transparent 70%),
+    radial-gradient(38% 30% at 50% 50%, rgba(120, 40, 210, 0.13), transparent 70%),
+    radial-gradient(30% 26% at 50% 50%, rgba(0, 170, 210, 0.08), transparent 70%);
+  animation: auroraA 26s ease-in-out infinite alternate;
+}
+
+body::after {
+  filter: blur(90px) saturate(120%);
+  background:
+    radial-gradient(40% 28% at 50% 50%, rgba(120, 40, 210, 0.11), transparent 70%),
+    radial-gradient(34% 26% at 50% 50%, rgba(229, 9, 20, 0.09), transparent 70%);
+  animation: auroraB 34s ease-in-out infinite alternate;
+}
+
+@keyframes auroraA {
+  0%   { transform: translate3d(-8%, 6%, 0) rotate(-14deg) scale(1.05); }
+  100% { transform: translate3d(8%, -6%, 0) rotate(14deg) scale(1.12); }
+}
+
+@keyframes auroraB {
+  0%   { transform: translate3d(9%, 5%, 0) rotate(12deg) scale(1.08); }
+  100% { transform: translate3d(-9%, -5%, 0) rotate(-12deg) scale(1.02); }
 }
 
 a { color: inherit; text-decoration: none; }
