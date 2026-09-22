@@ -1899,5 +1899,57 @@ const merged = dedupeSeries(poolRows(q), "series");
   if (backTop) backTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
   onScroll();
 
+  /* مشهد ثلاثي الأبعاد: طبقات عمق فوق بعض + إمالة الهيرو مع الماوس والتمرير */
+  const pzReduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!pzReduce) {
+    let pznx = 0, pzny = 0, pzsy = 0;
+    const pzLayers = [
+      [".pz-far", 0.16, 0.08],
+      [".pz-mid", 0.4, 0.16],
+      [".pz-near", 0.9, 0.3],
+    ];
+    window.addEventListener(
+      "pointermove",
+      (e) => {
+        pznx = (e.clientX / (window.innerWidth || 1)) * 2 - 1;
+        pzny = (e.clientY / (window.innerHeight || 1)) * 2 - 1;
+      },
+      { passive: true }
+    );
+    window.addEventListener(
+      "scroll",
+      () => {
+        pzsy = window.scrollY || document.documentElement.scrollTop;
+      },
+      { passive: true }
+    );
+    const pzLoop = () => {
+      requestAnimationFrame(pzLoop);
+      for (let i = 0; i < pzLayers.length; i++) {
+        const el = document.querySelector(pzLayers[i][0]);
+        if (!el) continue;
+        el.style.transform =
+          "translate3d(" +
+          (pznx * pzLayers[i][1] * 30).toFixed(1) +
+          "px," +
+          (pzny * pzLayers[i][1] * 20 - pzsy * pzLayers[i][2]).toFixed(1) +
+          "px,0)";
+      }
+      const hero3d = document.querySelector(".hero");
+      if (hero3d) {
+        hero3d.style.setProperty("--mx", pznx.toFixed(3));
+        hero3d.style.setProperty("--my", pzny.toFixed(3));
+      }
+    };
+    requestAnimationFrame(pzLoop);
+    document.addEventListener(
+      "animationend",
+      (e) => {
+        if (e.target && e.target.classList && e.target.classList.contains("hero")) e.target.classList.add("ready");
+      },
+      true
+    );
+  }
+
   route();
 })();
