@@ -56,42 +56,103 @@ body {
   position: relative;
 }
 
-/* شفق قطبي (أورورا) متحرك خلف المحتوى — موجات ضوء دافئة تنساب ببطء */
-body::before,
-body::after {
-  content: "";
+/* سماء نجوم تتلألأ + شهب تنطلق خلف المحتوى */
+.sky {
   position: fixed;
-  inset: -40%;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
-  will-change: transform;
+  overflow: hidden;
 }
 
-body::before {
-  filter: blur(70px) saturate(130%);
-  background:
-    radial-gradient(46% 34% at 50% 50%, rgba(229, 9, 20, 0.15), transparent 70%),
-    radial-gradient(38% 30% at 50% 50%, rgba(120, 40, 210, 0.13), transparent 70%),
-    radial-gradient(30% 26% at 50% 50%, rgba(0, 170, 210, 0.08), transparent 70%);
-  animation: auroraA 26s ease-in-out infinite alternate;
+@keyframes twinkleA {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
-body::after {
-  filter: blur(90px) saturate(120%);
-  background:
-    radial-gradient(40% 28% at 50% 50%, rgba(120, 40, 210, 0.11), transparent 70%),
-    radial-gradient(34% 26% at 50% 50%, rgba(229, 9, 20, 0.09), transparent 70%);
-  animation: auroraB 34s ease-in-out infinite alternate;
+@keyframes twinkleB {
+  0%, 100% { opacity: 0.18; }
+  45% { opacity: 0.85; }
+  80% { opacity: 0.4; }
 }
 
-@keyframes auroraA {
-  0%   { transform: translate3d(-8%, 6%, 0) rotate(-14deg) scale(1.05); }
-  100% { transform: translate3d(8%, -6%, 0) rotate(14deg) scale(1.12); }
+.star-a,
+.star-b,
+.star-c {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
 }
 
-@keyframes auroraB {
-  0%   { transform: translate3d(9%, 5%, 0) rotate(12deg) scale(1.08); }
-  100% { transform: translate3d(-9%, -5%, 0) rotate(-12deg) scale(1.02); }
+.star-a {
+  animation: twinkleA 4.2s ease-in-out -1.1s infinite;
+  background: #fff;
+  box-shadow: 1396px 616px 0 1px rgba(255,255,255,0.95), 506px 284px 0 0 rgba(255,255,255,0.95), 645px 318px 0 0 rgba(255,255,255,0.95), 392px 562px 0 1px rgba(255,255,255,0.95), 350px 228px 0 0 rgba(255,255,255,0.95), 912px 392px 0 0 rgba(255,255,255,0.95), 974px 800px 0 1px rgba(255,255,255,0.95), 502px 863px 0 0 rgba(255,255,255,0.95), 1165px 358px 0 0 rgba(255,255,255,0.95), 743px 729px 0 1px rgba(255,255,255,0.95), 0px 689px 0 0 rgba(255,255,255,0.95), 446px 515px 0 0 rgba(255,255,255,0.95), 179px 650px 0 1px rgba(255,255,255,0.95), 764px 7px 0 0 rgba(255,255,255,0.95), 673px 263px 0 0 rgba(255,255,255,0.95), 1202px 863px 0 1px rgba(255,255,255,0.95), 396px 17px 0 0 rgba(255,255,255,0.95), 886px 804px 0 0 rgba(255,255,255,0.95), 1411px 767px 0 1px rgba(255,255,255,0.95), 814px 119px 0 0 rgba(255,255,255,0.95), 127px 636px 0 0 rgba(255,255,255,0.95), 1287px 663px 0 1px rgba(255,255,255,0.95), 1059px 612px 0 0 rgba(255,255,255,0.95), 313px 60px 0 0 rgba(255,255,255,0.95), 1309px 851px 0 1px rgba(255,255,255,0.95), 170px 897px 0 0 rgba(255,255,255,0.95), 487px 275px 0 0 rgba(255,255,255,0.95), 518px 730px 0 1px rgba(255,255,255,0.95), 68px 373px 0 0 rgba(255,255,255,0.95), 1127px 682px 0 0 rgba(255,255,255,0.95), 834px 601px 0 1px rgba(255,255,255,0.95), 1233px 242px 0 0 rgba(255,255,255,0.95), 1274px 681px 0 0 rgba(255,255,255,0.95), 1297px 764px 0 1px rgba(255,255,255,0.95), 1264px 802px 0 0 rgba(255,255,255,0.95), 1408px 572px 0 0 rgba(255,255,255,0.95), 946px 618px 0 1px rgba(255,255,255,0.95), 642px 553px 0 0 rgba(255,255,255,0.95), 568px 654px 0 0 rgba(255,255,255,0.95), 262px 464px 0 1px rgba(255,255,255,0.95), 1287px 696px 0 0 rgba(255,255,255,0.95), 675px 327px 0 0 rgba(255,255,255,0.95), 1164px 602px 0 1px rgba(255,255,255,0.95), 798px 631px 0 0 rgba(255,255,255,0.95), 769px 793px 0 0 rgba(255,255,255,0.95), 1253px 431px 0 1px rgba(255,255,255,0.95);
+}
+
+.star-b {
+  animation: twinkleB 5.6s ease-in-out -2.4s infinite;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 39px 706px 0 1px rgba(255,255,255,0.62), 1429px 899px 0 0 rgba(255,255,255,0.62), 968px 558px 0 0 rgba(255,255,255,0.62), 115px 427px 0 1px rgba(255,255,255,0.62), 913px 617px 0 0 rgba(255,255,255,0.62), 875px 406px 0 0 rgba(255,255,255,0.62), 337px 439px 0 1px rgba(255,255,255,0.62), 705px 127px 0 0 rgba(255,255,255,0.62), 768px 147px 0 0 rgba(255,255,255,0.62), 1186px 144px 0 1px rgba(255,255,255,0.62), 1283px 629px 0 0 rgba(255,255,255,0.62), 1129px 79px 0 0 rgba(255,255,255,0.62), 262px 740px 0 1px rgba(255,255,255,0.62), 247px 622px 0 0 rgba(255,255,255,0.62), 996px 503px 0 0 rgba(255,255,255,0.62), 925px 727px 0 1px rgba(255,255,255,0.62), 959px 407px 0 0 rgba(255,255,255,0.62), 849px 818px 0 0 rgba(255,255,255,0.62), 774px 407px 0 1px rgba(255,255,255,0.62), 1017px 283px 0 0 rgba(255,255,255,0.62), 1170px 425px 0 0 rgba(255,255,255,0.62), 290px 78px 0 1px rgba(255,255,255,0.62), 902px 551px 0 0 rgba(255,255,255,0.62), 996px 524px 0 0 rgba(255,255,255,0.62), 1392px 40px 0 1px rgba(255,255,255,0.62), 1093px 611px 0 0 rgba(255,255,255,0.62), 810px 515px 0 0 rgba(255,255,255,0.62), 241px 595px 0 1px rgba(255,255,255,0.62), 631px 763px 0 0 rgba(255,255,255,0.62), 1090px 697px 0 0 rgba(255,255,255,0.62), 197px 241px 0 1px rgba(255,255,255,0.62), 1436px 406px 0 0 rgba(255,255,255,0.62), 877px 470px 0 0 rgba(255,255,255,0.62), 300px 178px 0 1px rgba(255,255,255,0.62), 1107px 741px 0 0 rgba(255,255,255,0.62), 651px 136px 0 0 rgba(255,255,255,0.62), 1029px 708px 0 1px rgba(255,255,255,0.62), 125px 267px 0 0 rgba(255,255,255,0.62);
+}
+
+.star-c {
+  animation: twinkleB 6.8s ease-in-out -3.3s infinite;
+  background: rgba(255, 214, 170, 0.55);
+  box-shadow: 492px 472px 0 1px rgba(255,214,170,0.5), 1263px 640px 0 0 rgba(255,214,170,0.5), 593px 295px 0 0 rgba(255,214,170,0.5), 472px 17px 0 1px rgba(255,214,170,0.5), 919px 548px 0 0 rgba(255,214,170,0.5), 1098px 201px 0 0 rgba(255,214,170,0.5), 1399px 53px 0 1px rgba(255,214,170,0.5), 721px 748px 0 0 rgba(255,214,170,0.5), 469px 798px 0 0 rgba(255,214,170,0.5), 873px 881px 0 1px rgba(255,214,170,0.5), 1151px 640px 0 0 rgba(255,214,170,0.5), 627px 587px 0 0 rgba(255,214,170,0.5), 813px 100px 0 1px rgba(255,214,170,0.5), 1246px 524px 0 0 rgba(255,214,170,0.5), 612px 768px 0 0 rgba(255,214,170,0.5), 260px 712px 0 1px rgba(255,214,170,0.5), 49px 699px 0 0 rgba(255,214,170,0.5), 903px 740px 0 0 rgba(255,214,170,0.5), 1133px 315px 0 1px rgba(255,214,170,0.5), 918px 566px 0 0 rgba(255,214,170,0.5), 541px 805px 0 0 rgba(255,214,170,0.5), 1034px 109px 0 1px rgba(255,214,170,0.5), 14px 424px 0 0 rgba(255,214,170,0.5), 6px 360px 0 0 rgba(255,214,170,0.5), 441px 395px 0 1px rgba(255,214,170,0.5), 696px 574px 0 0 rgba(255,214,170,0.5), 1217px 608px 0 0 rgba(255,214,170,0.5), 1274px 573px 0 1px rgba(255,214,170,0.5), 565px 416px 0 0 rgba(255,214,170,0.5), 335px 47px 0 0 rgba(255,214,170,0.5), 1134px 43px 0 1px rgba(255,214,170,0.5), 101px 250px 0 0 rgba(255,214,170,0.5);
+}
+
+/* شهب تنطلق بشكل عرضي عبر السماء */
+.meteor {
+  position: absolute;
+  top: 12%;
+  left: 68%;
+  width: 170px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.95), rgba(180, 200, 255, 0.35) 55%, transparent);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.55);
+  opacity: 0;
+  --mang: 150deg;
+  transform: rotate(var(--mang)) translate3d(0, 0, 0);
+  animation: shoot 6s linear -2.2s infinite;
+}
+
+.meteor.m2 {
+  top: 22%;
+  left: 86%;
+  width: 140px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.9), rgba(255, 200, 220, 0.3) 55%, transparent);
+  --mang: 158deg;
+  animation-duration: 7.8s;
+  animation-delay: -4.6s;
+}
+
+.meteor.m3 {
+  top: 5%;
+  left: 55%;
+  width: 120px;
+  background: linear-gradient(90deg, rgba(215, 235, 255, 0.9), rgba(180, 200, 255, 0.28) 55%, transparent);
+  --mang: 138deg;
+  animation-duration: 9s;
+  animation-delay: -7.1s;
+}
+
+@keyframes shoot {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--mang)) translate3d(0, 0, 0);
+  }
+  5% { opacity: 1; }
+  18% { opacity: 1; }
+  70% { opacity: 0.85; }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--mang)) translate3d(980px, 0, 0);
+  }
 }
 
 a { color: inherit; text-decoration: none; }
