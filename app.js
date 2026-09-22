@@ -1902,11 +1902,11 @@ const merged = dedupeSeries(poolRows(q), "series");
   /* مشهد ثلاثي الأبعاد: طبقات عمق فوق بعض + إمالة الهيرو مع الماوس والتمرير */
   const pzReduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!pzReduce) {
-    let pznx = 0, pzny = 0, pzsy = 0;
+    let pznx = 0, pzny = 0, pzsy = 0, pzSecN = 0;
     const pzLayers = [
-      [".pz-far", 0.16, 0.08],
-      [".pz-mid", 0.4, 0.16],
-      [".pz-near", 0.9, 0.3],
+      [".pz-far", 0.16, 0.12],
+      [".pz-mid", 0.4, 0.22],
+      [".pz-near", 0.9, 0.36],
     ];
     window.addEventListener(
       "pointermove",
@@ -1969,8 +1969,15 @@ const merged = dedupeSeries(poolRows(q), "series");
       }
       const hero3d = document.querySelector(".hero");
       if (hero3d) {
+        const hz = Math.min(1, pzsy / 520);
         hero3d.style.setProperty("--mx", pznx.toFixed(3));
         hero3d.style.setProperty("--my", pzny.toFixed(3));
+        hero3d.style.setProperty("--hozf", (1 - hz * 0.55).toFixed(3));
+        hero3d.style.setProperty("--hozo", (1 - hz * 0.85).toFixed(3));
+        if (hero3d.classList.contains("ready")) {
+          hero3d.style.transform =
+            "translate3d(0," + (-30 * hz).toFixed(1) + "px,0) scale(" + (1 - hz * 0.09).toFixed(3) + ")";
+        }
       }
       if (flyCards.size || flySecs.size) {
         const vh = window.innerHeight || 900;
@@ -1979,15 +1986,25 @@ const merged = dedupeSeries(poolRows(q), "series");
           const r = c.getBoundingClientRect();
           const d = ((r.top + r.height / 2) - cy) / (vh / 2);
           const ad = Math.min(1, Math.abs(d));
-          c.style.setProperty("--fy", (-d * 18).toFixed(1) + "px");
-          c.style.setProperty("--fr", (-d * 2.4).toFixed(2) + "deg");
-          c.style.setProperty("--fs", (1 - ad * 0.05).toFixed(3));
-          c.style.setProperty("--fo", Math.max(0.35, 1 - ad * 0.55).toFixed(2));
+          c.style.setProperty("--fy", (-d * 40).toFixed(1) + "px");
+          c.style.setProperty("--fr", (-d * 10).toFixed(2) + "deg");
+          c.style.setProperty("--fs", (1 - ad * 0.12).toFixed(3));
+          c.style.setProperty("--fo", Math.max(0.45, 1 - ad * 0.5).toFixed(2));
         }
         for (const s of flySecs) {
           const r = s.getBoundingClientRect();
           const p = Math.min(1, Math.max(0, (vh - r.top) / (vh + r.height)));
           s.style.setProperty("--sp", p.toFixed(3));
+          if (s.__d3 === undefined) s.__d3 = ++pzSecN % 2 ? 1 : -1;
+          const t = 0.5 - p;
+          s.style.transform =
+            "translate3d(" +
+            (s.__d3 * t * 60).toFixed(1) +
+            "px," +
+            (t * 34).toFixed(1) +
+            "px,0) scale(" +
+            (0.95 + p * 0.07).toFixed(3) +
+            ")";
         }
       }
     };

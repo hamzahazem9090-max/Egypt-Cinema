@@ -716,8 +716,20 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   transform: perspective(1100px) rotateX(calc(var(--ty, 0) * -1.6deg)) rotateY(calc(var(--mx, 0) * 2deg));
   transform-style: preserve-3d;
   animation: none;
-  transition: transform 0.18s var(--ease);
+  opacity: var(--hozo, 1);
+  transition: transform 0.18s var(--ease), opacity 0.45s ease;
   will-change: transform;
+}
+
+/* مع السكرول: الهيرو كمشهد كامل ينسحب للعمق ويطفي — تطبق inline من JS */
+.hero.ready {
+  animation: none;
+  transition: transform 0.5s var(--ease);
+}
+
+.hero.ready .hero-backdrop {
+  filter: brightness(var(--hozf, 1));
+  transition: filter 0.5s ease;
 }
 
 .hero-meta {
@@ -826,7 +838,7 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
 /* ============================================================
    Sections
    ============================================================ */
-.section { position: relative; margin-top: 34px; }
+.section { position: relative; margin-top: 34px; transition: transform 0.28s var(--ease), opacity 0.4s ease; }
 .section + .section { margin-top: 48px; }
 
 /* هالة إضاءة سينمائية تتحرك مع تقدم السكرول في كل قسم */
