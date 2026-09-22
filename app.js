@@ -1899,14 +1899,14 @@ const merged = dedupeSeries(poolRows(q), "series");
   if (backTop) backTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
   onScroll();
 
-  /* مشهد ثلاثي الأبعاد: طبقات عمق فوق بعض + إمالة الهيرو مع الماوس والتمرير */
+  /* مشهد ثلاثي الأبعاد خفيف: طبقات عمق تتحرك مع الماوس فقط + إمالة الهيرو */
   const pzReduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!pzReduce) {
-    let pznx = 0, pzny = 0, pzsy = 0, pzSecN = 0;
+    let pznx = 0, pzny = 0;
     const pzLayers = [
-      [".pz-far", 0.16, 0.12],
-      [".pz-mid", 0.4, 0.22],
-      [".pz-near", 0.9, 0.36],
+      [".pz-far", 0.16],
+      [".pz-mid", 0.4],
+      [".pz-near", 0.9],
     ];
     window.addEventListener(
       "pointermove",
@@ -1916,45 +1916,6 @@ const merged = dedupeSeries(poolRows(q), "series");
       },
       { passive: true }
     );
-    window.addEventListener(
-      "scroll",
-      () => {
-        pzsy = window.scrollY || document.documentElement.scrollTop;
-      },
-      { passive: true }
-    );
-
-    /* عمق تفاعلي للبوسترات: كل كارت يطفو فوق/تحت مركز الشاشة أثناء السكرول
-       ومشهد ضوئي يتحرك مع تقدم كل قسم، باستخدام IntersectionObserver */
-    const flyCards = new Set();
-    const flySecs = new Set();
-    const flyIO =
-      "IntersectionObserver" in window
-        ? new IntersectionObserver(
-            (ents) => {
-              for (const en of ents) {
-                const set = en.target.classList.contains("card") ? flyCards : flySecs;
-                if (en.isIntersecting) set.add(en.target);
-                else set.delete(en.target);
-              }
-            },
-            { rootMargin: "160px 0px" }
-          )
-        : null;
-    const observe3d = () => {
-      if (!flyIO) return;
-      document.querySelectorAll(".row .card, .section").forEach((el) => {
-        if (el.dataset.io3d !== "1") {
-          el.dataset.io3d = "1";
-          flyIO.observe(el);
-        }
-      });
-    };
-    if (flyIO) {
-      new MutationObserver(() => observe3d()).observe(document.body, { childList: true, subtree: true });
-      observe3d();
-    }
-
     const pzLoop = () => {
       requestAnimationFrame(pzLoop);
       for (let i = 0; i < pzLayers.length; i++) {
@@ -1964,48 +1925,13 @@ const merged = dedupeSeries(poolRows(q), "series");
           "translate3d(" +
           (pznx * pzLayers[i][1] * 30).toFixed(1) +
           "px," +
-          (pzny * pzLayers[i][1] * 20 - pzsy * pzLayers[i][2]).toFixed(1) +
+          (pzny * pzLayers[i][1] * 20).toFixed(1) +
           "px,0)";
       }
       const hero3d = document.querySelector(".hero");
       if (hero3d) {
-        const hz = Math.min(1, pzsy / 520);
         hero3d.style.setProperty("--mx", pznx.toFixed(3));
         hero3d.style.setProperty("--my", pzny.toFixed(3));
-        hero3d.style.setProperty("--hozf", (1 - hz * 0.55).toFixed(3));
-        hero3d.style.setProperty("--hozo", (1 - hz * 0.85).toFixed(3));
-        if (hero3d.classList.contains("ready")) {
-          hero3d.style.transform =
-            "translate3d(0," + (-30 * hz).toFixed(1) + "px,0) scale(" + (1 - hz * 0.09).toFixed(3) + ")";
-        }
-      }
-      if (flyCards.size || flySecs.size) {
-        const vh = window.innerHeight || 900;
-        const cy = vh / 2;
-        for (const c of flyCards) {
-          const r = c.getBoundingClientRect();
-          const d = ((r.top + r.height / 2) - cy) / (vh / 2);
-          const ad = Math.min(1, Math.abs(d));
-          c.style.setProperty("--fy", (-d * 40).toFixed(1) + "px");
-          c.style.setProperty("--fr", (-d * 10).toFixed(2) + "deg");
-          c.style.setProperty("--fs", (1 - ad * 0.12).toFixed(3));
-          c.style.setProperty("--fo", Math.max(0.45, 1 - ad * 0.5).toFixed(2));
-        }
-        for (const s of flySecs) {
-          const r = s.getBoundingClientRect();
-          const p = Math.min(1, Math.max(0, (vh - r.top) / (vh + r.height)));
-          s.style.setProperty("--sp", p.toFixed(3));
-          if (s.__d3 === undefined) s.__d3 = ++pzSecN % 2 ? 1 : -1;
-          const t = 0.5 - p;
-          s.style.transform =
-            "translate3d(" +
-            (s.__d3 * t * 60).toFixed(1) +
-            "px," +
-            (t * 34).toFixed(1) +
-            "px,0) scale(" +
-            (0.95 + p * 0.07).toFixed(3) +
-            ")";
-        }
       }
     };
     requestAnimationFrame(pzLoop);

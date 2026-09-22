@@ -716,20 +716,8 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   transform: perspective(1100px) rotateX(calc(var(--ty, 0) * -1.6deg)) rotateY(calc(var(--mx, 0) * 2deg));
   transform-style: preserve-3d;
   animation: none;
-  opacity: var(--hozo, 1);
-  transition: transform 0.18s var(--ease), opacity 0.45s ease;
+  transition: transform 0.18s var(--ease);
   will-change: transform;
-}
-
-/* مع السكرول: الهيرو كمشهد كامل ينسحب للعمق ويطفي — تطبق inline من JS */
-.hero.ready {
-  animation: none;
-  transition: transform 0.5s var(--ease);
-}
-
-.hero.ready .hero-backdrop {
-  filter: brightness(var(--hozf, 1));
-  transition: filter 0.5s ease;
 }
 
 .hero-meta {
@@ -838,20 +826,8 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
 /* ============================================================
    Sections
    ============================================================ */
-.section { position: relative; margin-top: 34px; transition: transform 0.28s var(--ease), opacity 0.4s ease; }
+.section { margin-top: 34px; }
 .section + .section { margin-top: 48px; }
-
-/* هالة إضاءة سينمائية تتحرك مع تقدم السكرول في كل قسم */
-.section::before {
-  content: "";
-  position: absolute;
-  inset: -30px 0;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(560px 240px at calc(12% + var(--sp, 0) * 76%) 28%, rgba(229, 9, 20, 0.14), transparent 70%);
-  opacity: calc(var(--sp, 0) * 0.85);
-  transition: opacity 0.4s ease;
-}
 
 .section-head {
   display: flex;
@@ -936,14 +912,12 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   background: var(--bg-soft);
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  transform: translate3d(0, var(--fy, 0px), 0) rotateX(var(--fr, 0deg)) scale(var(--fs, 1));
-  opacity: var(--fo, 1);
   transition: transform 0.3s var(--ease), box-shadow 0.35s ease, border-color 0.3s ease;
   will-change: transform;
 }
 
 .card:hover {
-  transform: translate3d(0, -4px, 0) rotateX(var(--fr, 0deg)) scale(1.045);
+  transform: scale(1.045) translateY(-4px);
   box-shadow: 0 22px 50px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 34px rgba(229, 9, 20, 0.1);
   border-color: rgba(255, 255, 255, 0.14);
   z-index: 2;
