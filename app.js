@@ -1923,6 +1923,38 @@ const merged = dedupeSeries(poolRows(q), "series");
       },
       { passive: true }
     );
+
+    /* عمق تفاعلي للبوسترات: كل كارت يطفو فوق/تحت مركز الشاشة أثناء السكرول
+       ومشهد ضوئي يتحرك مع تقدم كل قسم، باستخدام IntersectionObserver */
+    const flyCards = new Set();
+    const flySecs = new Set();
+    const flyIO =
+      "IntersectionObserver" in window
+        ? new IntersectionObserver(
+            (ents) => {
+              for (const en of ents) {
+                const set = en.target.classList.contains("card") ? flyCards : flySecs;
+                if (en.isIntersecting) set.add(en.target);
+                else set.delete(en.target);
+              }
+            },
+            { rootMargin: "160px 0px" }
+          )
+        : null;
+    const observe3d = () => {
+      if (!flyIO) return;
+      document.querySelectorAll(".row .card, .section").forEach((el) => {
+        if (el.dataset.io3d !== "1") {
+          el.dataset.io3d = "1";
+          flyIO.observe(el);
+        }
+      });
+    };
+    if (flyIO) {
+      new MutationObserver(() => observe3d()).observe(document.body, { childList: true, subtree: true });
+      observe3d();
+    }
+
     const pzLoop = () => {
       requestAnimationFrame(pzLoop);
       for (let i = 0; i < pzLayers.length; i++) {
@@ -1940,6 +1972,24 @@ const merged = dedupeSeries(poolRows(q), "series");
         hero3d.style.setProperty("--mx", pznx.toFixed(3));
         hero3d.style.setProperty("--my", pzny.toFixed(3));
       }
+      if (flyCards.size || flySecs.size) {
+        const vh = window.innerHeight || 900;
+        const cy = vh / 2;
+        for (const c of flyCards) {
+          const r = c.getBoundingClientRect();
+          const d = ((r.top + r.height / 2) - cy) / (vh / 2);
+          const ad = Math.min(1, Math.abs(d));
+          c.style.setProperty("--fy", (-d * 18).toFixed(1) + "px");
+          c.style.setProperty("--fr", (-d * 2.4).toFixed(2) + "deg");
+          c.style.setProperty("--fs", (1 - ad * 0.05).toFixed(3));
+          c.style.setProperty("--fo", Math.max(0.35, 1 - ad * 0.55).toFixed(2));
+        }
+        for (const s of flySecs) {
+          const r = s.getBoundingClientRect();
+          const p = Math.min(1, Math.max(0, (vh - r.top) / (vh + r.height)));
+          s.style.setProperty("--sp", p.toFixed(3));
+        }
+      }
     };
     requestAnimationFrame(pzLoop);
     document.addEventListener(
@@ -1949,6 +1999,27 @@ const merged = dedupeSeries(poolRows(q), "series");
       },
       true
     );
+  }
+
+  /* افتتاحية سينمائية ثلاثية الأبعاد: تُعرض مرة واحدة في الجلسة */
+  try {
+    if (!pzReduce && window.sessionStorage && !sessionStorage.getItem("eg_intro")) {
+      sessionStorage.setItem("eg_intro", "1");
+      const introOv = document.createElement("div");
+      introOv.className = "intro3d";
+      introOv.setAttribute("role", "presentation");
+      introOv.innerHTML =
+        '<div class="intro-stage"><div class="intro-logo">🎬</div><div class="intro-title">Egypt <span>Cinema</span></div><div class="intro-beam"></div><div class="intro-tag">عالمك الخاص في السينما</div></div>';
+      introOv.addEventListener(
+        "animationend",
+        (e) => {
+          if (e.animationName === "introOut") setTimeout(() => introOv.remove(), 80);
+        }
+      );
+      document.body.appendChild(introOv);
+    }
+  } catch (err) {
+    /* تجاهل أي خلل في الافتتاحية حتى لا تعطل الموقع */
   }
 
   route();

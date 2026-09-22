@@ -103,6 +103,26 @@ body {
   to { transform: translate3d(-36px, 26px, 0) scale(1.2); }
 }
 
+/* شعاع ضوء حجمي يجوب الخلفية ببطء (إضاءة جارية بأبعاد) */
+.vbeam {
+  position: absolute;
+  top: -20%;
+  left: -30%;
+  width: 46vw;
+  height: 140vh;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.05) 42%, rgba(229, 9, 20, 0.09) 55%, rgba(255, 255, 255, 0.04) 68%, transparent 100%);
+  filter: blur(28px);
+  mix-blend-mode: screen;
+  opacity: 0.5;
+  transform: rotate(16deg);
+  animation: vbeamSweep 18s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+
+@keyframes vbeamSweep {
+  from { transform: rotate(16deg) translateX(-6vw); opacity: 0.35; }
+  to { transform: rotate(10deg) translateX(130vw); opacity: 0.7; }
+}
+
 /* فرشة ساكنة من نجوم خافتة — عمق ثابت */
 .stars-bed {
   position: absolute;
@@ -806,8 +826,20 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
 /* ============================================================
    Sections
    ============================================================ */
-.section { margin-top: 34px; }
+.section { position: relative; margin-top: 34px; }
 .section + .section { margin-top: 48px; }
+
+/* هالة إضاءة سينمائية تتحرك مع تقدم السكرول في كل قسم */
+.section::before {
+  content: "";
+  position: absolute;
+  inset: -30px 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(560px 240px at calc(12% + var(--sp, 0) * 76%) 28%, rgba(229, 9, 20, 0.14), transparent 70%);
+  opacity: calc(var(--sp, 0) * 0.85);
+  transition: opacity 0.4s ease;
+}
 
 .section-head {
   display: flex;
@@ -892,12 +924,14 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   background: var(--bg-soft);
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.06);
+  transform: translate3d(0, var(--fy, 0px), 0) rotateX(var(--fr, 0deg)) scale(var(--fs, 1));
+  opacity: var(--fo, 1);
   transition: transform 0.3s var(--ease), box-shadow 0.35s ease, border-color 0.3s ease;
   will-change: transform;
 }
 
 .card:hover {
-  transform: scale(1.045) translateY(-4px);
+  transform: translate3d(0, -4px, 0) rotateX(var(--fr, 0deg)) scale(1.045);
   box-shadow: 0 22px 50px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 34px rgba(229, 9, 20, 0.1);
   border-color: rgba(255, 255, 255, 0.14);
   z-index: 2;
@@ -1966,6 +2000,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .toast { max-width: calc(100vw - 32px); text-align: center; }
 }
 
+.vbeam { width: 70vw; top: -10%; height: 120vh; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -1973,4 +2009,90 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     transition-duration: 0.01ms !important;
   }
   .reveal { opacity: 1; transform: none; }
+}
+
+/* ============================================================
+   افتتاحية سينمائية ثلاثية الأبعاد — تُعرض مرة واحدة في الجلسة
+   ============================================================ */
+.intro3d {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: radial-gradient(62% 50% at 50% 42%, rgba(10, 12, 16, 0.75), rgba(3, 4, 6, 0.96) 75%);
+  animation: introOut 0.5s ease 2.15s both;
+}
+
+.intro-stage {
+  perspective: 900px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  animation: introIn 1.15s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+.intro-logo {
+  font-size: 4.2rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 34px rgba(229, 9, 20, 0.55));
+  animation: introFloat 2.4s ease-in-out infinite;
+}
+
+.intro-title {
+  font-size: clamp(2.6rem, 7vw, 4.6rem);
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.02em;
+  transform: rotateX(14deg);
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.5),
+    0 2px 0 rgba(0, 0, 0, 0.44),
+    0 3px 0 rgba(0, 0, 0, 0.38),
+    0 4px 0 rgba(0, 0, 0, 0.32),
+    0 7px 8px rgba(0, 0, 0, 0.55),
+    0 0 90px rgba(229, 9, 20, 0.4);
+}
+
+.intro-title span { color: var(--accent); }
+
+.intro-beam {
+  width: 240px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent-hover), transparent);
+  filter: blur(6px);
+  animation: introBeam 2.2s ease-in-out infinite;
+}
+
+.intro-tag {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+@keyframes introIn {
+  0% { opacity: 0; transform: translate3d(0, 0, -520px) rotateY(-26deg) scale(0.4); }
+  62% { opacity: 1; transform: translate3d(0, 0, 46px) rotateY(4deg) scale(1.03); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes introOut {
+  to { opacity: 0; transform: translateY(-28px) scale(0.96); }
+}
+
+@keyframes introFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+@keyframes introBeam {
+  0%, 100% { transform: scaleX(0.4); opacity: 0.4; }
+  50% { transform: scaleX(1.2); opacity: 1; }
 }
