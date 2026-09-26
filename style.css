@@ -1933,6 +1933,280 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
 .reveal.visible { opacity: 1; transform: translateY(0); }
 
 /* ============================================================
+   لمعة التحميل + انتقال الصفحة + شارة الترتيب + خط القسم
+   ============================================================ */
+.poster-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.08) 45%, rgba(255, 255, 255, 0.16) 50%, rgba(255, 255, 255, 0.08) 55%, transparent 70%);
+  background-size: 240% 100%;
+  animation: shimmer 1.4s linear infinite;
+  display: none;
+}
+
+.card-poster.lazy:not(.loaded):not(.placeholder) .poster-shimmer { display: block; }
+
+@keyframes shimmer {
+  from { background-position: 140% 0; }
+  to { background-position: -140% 0; }
+}
+
+.card-poster.loaded { animation: posterIn 0.5s var(--ease); }
+
+@keyframes posterIn {
+  from { opacity: 0.45; }
+  to { opacity: 1; }
+}
+
+.rank {
+  position: absolute;
+  top: 9px;
+  inset-inline-end: 9px;
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, var(--accent-hover), var(--accent));
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 800;
+  box-shadow: 0 4px 18px rgba(229, 9, 20, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.section-head::after { transform-origin: right; }
+
+.section.reveal.visible .section-head::after {
+  animation: headLine 0.7s var(--ease) both;
+}
+
+@keyframes headLine {
+  from { transform: scaleX(0); opacity: 0; }
+}
+
+#app.view-in { animation: viewIn 0.38s var(--ease) both; }
+
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* تنفّس خفيف للبوسترات على شاشات اللمس — إحساس حي بلا تكلفة */
+@media (hover: none) {
+  .row .card-poster {
+    animation: posterGlow 8s ease-in-out infinite;
+    animation-delay: calc(var(--gi, 0) * -1.1s);
+  }
+}
+
+@keyframes posterGlow {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.09); }
+}
+
+/* ============================================================
+   لمسة تفاعلية على البوسترات + ميني بلاير + سكرولبار + عداد تالي
+   ============================================================ */
+.poster-spot {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(200px circle at var(--sx, 50%) var(--sy, 50%), rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05) 46%, transparent 68%);
+  mix-blend-mode: screen;
+}
+
+.card:hover .poster-spot,
+.card-poster:active .poster-spot { opacity: 1; }
+
+.mini-watch {
+  position: fixed;
+  z-index: 80;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  bottom: 16px;
+  width: min(660px, calc(100vw - 20px));
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border-radius: 15px;
+  background: rgba(11, 13, 17, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(229, 9, 20, 0.12);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: miniIn 0.45s var(--ease) both;
+}
+
+.mini-watch[hidden] { display: none; }
+
+@keyframes miniIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.mini-watch-img {
+  width: 44px;
+  height: 62px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  background: #101317;
+}
+
+.mini-watch-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mini-watch-title { color: var(--text-bright); font-weight: 700; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-watch-p { color: var(--muted); font-size: 0.75rem; }
+
+.mini-watch-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.8rem;
+  padding: 9px 16px;
+  border-radius: 999px;
+  text-decoration: none;
+  box-shadow: 0 6px 20px rgba(229, 9, 20, 0.4);
+}
+
+.mini-watch-go:hover { background: var(--accent-hover); }
+
+.mini-watch-x {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  padding: 6px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.mini-watch-x:hover { color: #fff; }
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #33383f, #23262b);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, var(--accent-hover), var(--accent)); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+html { scrollbar-width: thin; scrollbar-color: #2b3036 transparent; }
+
+/* خط nav متحرك: تدفق ضوئي على التبويب النشط */
+.nav a.active::after {
+  background: linear-gradient(90deg, var(--accent-hover), var(--accent), var(--accent-hover));
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px rgba(229, 9, 20, 0.55);
+  animation: navFlow 3.2s linear infinite;
+}
+
+@keyframes navFlow {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
+}
+
+/* عداد الحلقة الجاية */
+.auto-next {
+  position: absolute;
+  inset-inline-end: 14px;
+  bottom: 14px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(8, 10, 13, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: miniIn 0.4s var(--ease) both;
+}
+
+.auto-next[hidden] { display: none; }
+
+.auto-next-body {
+  border: 0;
+  background: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.auto-ring {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) calc(var(--p, 100) * 1%), rgba(255, 255, 255, 0.14) 0);
+  display: inline-block;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.auto-ring::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: #0a0c0f;
+}
+
+.auto-next-t {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-bright);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.auto-next-t b { color: var(--accent-hover); font-variant-numeric: tabular-nums; }
+
+.auto-next-go {
+  border: 0;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.78rem;
+  padding: 8px 13px;
+  border-radius: 999px;
+}
+
+.auto-next-go:hover { background: var(--accent-hover); }
+
+.auto-next-x {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 5px;
+}
+
+.auto-next-x:hover { color: #fff; }
+
+/* ============================================================
    Focus
    ============================================================ */
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {

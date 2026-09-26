@@ -129,6 +129,7 @@
     set('[data-nav="favs"] .count', Object.keys(lib.favorites).length);
     set('[data-nav="hist"] .count', Object.keys(lib.history).length);
     set('[data-nav="rated"] .count', Object.keys(lib.ratings).length);
+    updateMini();
   }
 
   /* ---------- جلب البيانات من Top Cinema (دائمًا تحديث بدون كاش) ---------- */
@@ -692,6 +693,7 @@
           "</a>"
         : '<span class="ep-nav-btn disabled"></span>';
     nav.innerHTML = cell(prev, "prev") + cell(next, "next");
+    syncAutoNext(next);
   }
 
   /* تبديل الحلقة داخل نفس الصفحة بدون إعادة بناء كاملة */
@@ -914,10 +916,12 @@
       : "";
     const post =
       '<div class="card-poster ' +
-      (img ? "" : "placeholder") +
-      '" style="' +
-      (img ? "background-image:url('" + esc(img) + "')" : "") +
-      '">' +
+      (img ? "lazy" : "placeholder") +
+      '"' +
+      (img ? ' style="background-image:url(\'' + esc(img) + '\')" data-bg="' + esc(img) + '"' : "") +
+      ">" +
+      (img ? '<span class="poster-shimmer"></span>' : "") +
+      (img ? '<span class="poster-spot"></span>' : "") +
       (!img ? "🎬" : "") +
       (item.seriesCount > 1 ? '<span class="card-eps">' + fa(item.seriesCount) + " حلقة</span>" : "") +
       '<div class="card-detail"><div class="card-detail-mask"></div><div class="card-detail-body">' +
@@ -956,11 +960,11 @@
     );
   }
 
-  function gridHtml(list) {
+  function gridHtml(list, cls) {
     if (!list || !list.length) {
       return '<div class="empty"><div class="icon">🎬</div><p>لا يوجد محتوى للعرض</p></div>';
     }
-    return '<div class="row">' + list.map(cardHtml).join("") + "</div>";
+    return '<div class="row' + (cls ? " " + cls : "") + '">' + list.map(cardHtml).join("") + "</div>";
   }
 
   function sectionHead(title, link) {
@@ -1090,12 +1094,12 @@
         '<section class="section reveal"><div class="section-head"><h2>🎬 أحدث الأفلام</h2>' +
         '<a class="see-all" href="' + browseQuery({ cat: FILM_CATS.join(",") }) + '">عرض الكل</a></div>' +
         (filmCats.length ? '<div class="filter-chips">' + pills(filmCats) + "</div>" : "") +
-        gridHtml(dedupeSeries(films.items).slice(1, 25)) +
+        gridHtml(dedupeSeries(films.items).slice(1, 25), "top-row") +
         "</section>" +
         '<section class="section reveal"><div class="section-head"><h2>📺 أحدث المسلسلات</h2>' +
         '<a class="see-all" href="' + browseQuery({ cat: SERIES_CATS.join(",") }) + '">عرض الكل</a></div>' +
         (seriesCats.length ? '<div class="filter-chips">' + pills(seriesCats) + "</div>" : "") +
-        gridHtml(dedupeSeries(series.items).slice(0, 25)) +
+        gridHtml(dedupeSeries(series.items).slice(0, 25), "top-row") +
         "</section>";
       renderHero();
       bindGlobal();
@@ -1567,6 +1571,9 @@
       app.innerHTML = '<div class="not-found"><div class="icon">404</div><p>الصفحة غير موجودة</p><a class="btn btn-ghost" href="#/">الرئيسية</a></div>';
       setLoading(false);
     }
+    app.classList.remove("view-in");
+    void app.offsetWidth;
+    app.classList.add("view-in");
   }
 
   /* ---------- البداية ---------- */
@@ -1942,6 +1949,148 @@ const merged = dedupeSeries(poolRows(q), "series");
       },
       true
     );
+  }
+
+  /* تحسينات العرض الحيّة: لمعة تحميل البوسترات + شارات الترتيب + تنفّس الموبايل */
+  const decorateApp = (root) => {
+    root.querySelectorAll(".card-poster.lazy[data-bg]").forEach((el) => {
+      if (el._wired) return;
+      el._wired = true;
+      const done = () => el.classList.add("loaded");
+      const im = new Image();
+      im.onload = done;
+      im.onerror = () => {
+        el.classList.add("placeholder");
+        done();
+      };
+      im.src = el.dataset.bg;
+    });
+    root.querySelectorAll(".row.top-row .card").forEach((c, i) => {
+      if (i < 3 && !c.querySelector(".rank")) c.insertAdjacentHTML("beforeend", '<span class="rank">' + fa(i + 1) + "</span>");
+    });
+    root.querySelectorAll(".row .card").forEach((c, i) => {
+      if (!c.style._gi) c.style.setProperty("--gi", String(i % 9));
+    });
+  };
+  if (window.MutationObserver) {
+    const appWatch = new MutationObserver((muts) => {
+      if (muts.some((m) => !(m.target.closest && m.target.closest("#heroSlot")))) {
+        clearTimeout(appWatch._t);
+        appWatch._t = setTimeout(() => decorateApp(app), 30);
+      }
+    });
+    appWatch.observe(app, { childList: true, subtree: true });
+  }
+  decorateApp(app);
+
+  /* لمسة ضوئية تتبع الماوس على البوسترات */
+  window.addEventListener(
+    "pointermove",
+    (e) => {
+      const po = e.target && e.target.closest ? e.target.closest(".card-poster") : null;
+      if (!po) return;
+      const r = po.getBoundingClientRect();
+      po.style.setProperty("--sx", (((e.clientX - r.left) / r.width) * 100).toFixed(1) + "%");
+      po.style.setProperty("--sy", (((e.clientY - r.top) / r.height) * 100).toFixed(1) + "%");
+    },
+    { passive: true }
+  );
+
+  /* ميني بلاير متابعة يطفو أسفل الشاشة */
+  var miniEl = null;
+  function updateMini() {
+    if (sessionStorage.getItem("eg_mini_x") === "1") {
+      if (miniEl) miniEl.hidden = true;
+      return;
+    }
+    const rec = Object.values(loadLib().history)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    if (!rec) {
+      if (miniEl) miniEl.hidden = true;
+      return;
+    }
+    if (!miniEl) {
+      miniEl = document.createElement("div");
+      miniEl.className = "mini-watch";
+      miniEl.innerHTML =
+        '<img class="mini-watch-img" alt="">' +
+        '<div class="mini-watch-body"><span class="mini-watch-title"></span><span class="mini-watch-p"></span></div>' +
+        '<a class="mini-watch-go" href="">▶ متابعة</a>' +
+        '<button class="mini-watch-x" title="إغلاق">✕</button>';
+      miniEl.querySelector(".mini-watch-x").addEventListener("click", () => {
+        sessionStorage.setItem("eg_mini_x", "1");
+        miniEl.hidden = true;
+      });
+      document.body.appendChild(miniEl);
+    }
+    const it = snapshotToItem(rec.snapshot);
+    const img = miniEl.querySelector(".mini-watch-img");
+    img.onerror = () => (img.style.display = "none");
+    img.src = it.image || "";
+    miniEl.querySelector(".mini-watch-title").textContent = it.title || "تابع المشاهدة";
+    const p = Math.round(((rec.progress || 0) / (rec.duration || 1)) * 100);
+    miniEl.querySelector(".mini-watch-p").textContent =
+      rec.progress > 0 && Number.isFinite(p) ? "متابعة " + Math.min(100, p) + "%" : "متابعة المشاهدة";
+    miniEl.querySelector(".mini-watch-go").setAttribute("href", "#/watch/" + rec.id);
+    miniEl.hidden = false;
+  }
+  updateMini();
+
+  /* عداد الحلقة الجاية فوق الفيديو */
+  let autoNextTimer = null;
+  const autoNextTotal = 12;
+  function syncAutoNext(next) {
+    const host = document.querySelector("#watchIframe");
+    if (!host) return;
+    const frame = host.closest(".watch-frame");
+    let pill = frame.querySelector(".auto-next");
+    const xKey = "eg_autonext_x_" + location.hash;
+    if (!next || sessionStorage.getItem(xKey) === "1") {
+      if (pill) pill.hidden = true;
+      clearInterval(autoNextTimer);
+      autoNextTimer = null;
+      return;
+    }
+    if (!pill) {
+      pill = document.createElement("div");
+      pill.className = "auto-next";
+      pill.innerHTML =
+        '<button class="auto-next-body"><span class="auto-ring"></span><span class="auto-next-t">التالي في <b></b> ث</span></button>' +
+        '<button class="auto-next-go">⏭ الآن</button>' +
+        '<button class="auto-next-x" title="إيقاف">✕</button>';
+      frame.appendChild(pill);
+      pill.querySelector(".auto-next-x").addEventListener("click", () => {
+        sessionStorage.setItem(xKey, "1");
+        pill.hidden = true;
+        clearInterval(autoNextTimer);
+        autoNextTimer = null;
+      });
+      const go = () => {
+        clearInterval(autoNextTimer);
+        autoNextTimer = null;
+        switchEpisode(next.id);
+      };
+      pill.querySelector(".auto-next-go").addEventListener("click", go);
+      pill.querySelector(".auto-next-body").addEventListener("click", go);
+    }
+    pill.hidden = false;
+    let n = autoNextTotal;
+    const num = pill.querySelector(".auto-next-t b");
+    const ring = pill.querySelector(".auto-ring");
+    const tick = () => {
+      num.textContent = n;
+      ring.style.setProperty("--p", ((n / autoNextTotal) * 100).toFixed(0));
+      if (n <= 0) {
+        clearInterval(autoNextTimer);
+        autoNextTimer = null;
+        switchEpisode(next.id);
+        return;
+      }
+      n--;
+    };
+    clearInterval(autoNextTimer);
+    tick();
+    autoNextTimer = setInterval(tick, 1000);
   }
 
   /* افتتاحية سينمائية ثلاثية الأبعاد: تُعرض مرة واحدة في الجلسة */
