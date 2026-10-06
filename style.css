@@ -1283,11 +1283,24 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
 .meta-list > div {
   padding: 9px 0;
   border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .meta-list > div:last-child { border-bottom: 0; }
 
-.meta-list strong { color: var(--text); }
+.meta-list strong,
+.meta-list b {
+  color: var(--text);
+  font-weight: 700;
+  text-align: end;
+}
+
+.meta-list b.st-new { color: #22c55e; }
+.meta-list b.st-excl { color: var(--accent-hover); }
+.meta-list b.st-soon { color: #f59e0b; }
 
 .meta-link {
   color: var(--muted);
@@ -2010,6 +2023,104 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   50% { filter: brightness(1.09); }
 }
 
+/* شارة الجودة + حالة المحتوى على البوسترات */
+.card-qual {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  z-index: 3;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: #fff;
+  background: rgba(8, 10, 13, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.card-qual::first-letter { color: var(--accent-hover); }
+
+.card-status {
+  position: absolute;
+  z-index: 3;
+  bottom: 8px;
+  inset-inline-start: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #fff;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.card-status.st-new { background: linear-gradient(135deg, #16a34a, #22c55e); }
+.card-status.st-excl { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); }
+.card-status.st-soon { background: linear-gradient(135deg, #b45309, #f59e0b); }
+
+/* فلاتر صفحة البحث */
+.search-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.search-filters .filter-chips {
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.search-filters .filter-chips::-webkit-scrollbar { display: none; }
+
+.search-filters button.filter-chip {
+  cursor: pointer;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-light);
+  color: var(--muted);
+}
+
+.search-filters button.filter-chip:hover {
+  color: var(--text-bright);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.search-filters button.filter-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(229, 9, 20, 0.35);
+}
+
+.search-more { margin: 18px 0 8px; }
+
+.cmeta.q {
+  color: var(--text-bright);
+  font-weight: 800;
+  background: rgba(229, 9, 20, 0.16);
+  border: 1px solid rgba(229, 9, 20, 0.3);
+  border-radius: 5px;
+  padding: 0 5px;
+}
+
+.badge.q {
+  color: #fff;
+  background: rgba(229, 9, 20, 0.22);
+  border-color: rgba(229, 9, 20, 0.45);
+  font-weight: 800;
+}
+
+.badge.st-new { background: linear-gradient(135deg, #16a34a, #22c55e); color: #fff; border-color: transparent; }
+.badge.st-excl { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: #fff; border-color: transparent; }
+.badge.st-soon { background: linear-gradient(135deg, #b45309, #f59e0b); color: #fff; border-color: transparent; }
+
 /* ============================================================
    لمسة تفاعلية على البوسترات + ميني بلاير + سكرولبار + عداد تالي
    ============================================================ */
@@ -2033,7 +2144,7 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   left: 0;
   right: 0;
   margin-inline: auto;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   width: min(660px, calc(100vw - 20px));
   display: flex;
   align-items: center;
@@ -2088,13 +2199,20 @@ html { scrollbar-color: #262d37 var(--bg); scrollbar-width: thin; }
   background: transparent;
   border: 0;
   color: var(--muted);
-  font-size: 0.95rem;
-  padding: 6px;
+  font-size: 1.05rem;
+  padding: 12px;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   line-height: 1;
+  border-radius: 12px;
 }
 
-.mini-watch-x:hover { color: #fff; }
+.mini-watch-x:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+.mini-watch-x:active { transform: scale(0.92); }
 
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-track { background: transparent; }

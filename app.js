@@ -163,9 +163,26 @@
   }
 
   /* عناوين Top Cinema مثل: "فيلم Saipan 2025 مترجم اون لاين" */
+  /* تصنيف مسلسل/أفلام: الأولوية للتصنيف الرسمي (7,8,9 = مسلسلات / 3,4,5 = أفلام)،
+    |Title فيها "مسلسل/الحلقة/الموسم".
+     ملاحظة: "season"/"episode" الإنجليزية ممكن تكون جزء من اسم فيلم
+     ("فيلم Hunting Season") فبنحتاج الكلمة trailed/leading boundary + "الموسم N". */
+  function detectIsSeries(title, cats) {
+    if (cats && cats.length) {
+      if (cats.some((c) => SERIES_CATS.includes(Number(c)))) return true;
+      if (cats.some((c) => FILM_CATS.includes(Number(c)))) return false;
+    }
+    const t = title || "";
+    if (/مسلسل|الحلقة|الموسم|الجزء/.test(t)) return true;
+    // "Season 2" / "Episode 5" أو "الحلقة 5" بأرقام afterwards
+    if (/\b(?:season|episode)\s*\d/i.test(t)) return true;
+    // لو الاسم بيبدأ بـ Season/Episode (زي "The Season of ...") نعتبره فيلم
+    return false;
+  }
+
   function parseWpTitle(title) {
     const t = title || "";
-    const isSeries = /مسلسل|الحلقة|موسم|episode|season/i.test(t);
+    const isSeries = detectIsSeries(t);
     const year = (t.match(/(?:19|20)\d{2}/) || [])[0] || "";
     const enPart = t
       .replace(/[\u0600-\u06FF\ufb50-\ufdff\ufe70-\ufeff]/g, " ")
@@ -280,10 +297,11 @@
   function itemFromPost(p, image) {
     const title = stripHtml(p.title && (p.title.rendered || p.title));
     const parsed = parseWpTitle(title);
+    const cats = (p.categories || []).filter(Boolean);
+    const isSeries = detectIsSeries(title, cats);
     let year = "";
     if (p.date) year = String(new Date(p.date).getUTCFullYear());
     if (!year) year = parsed.year;
-    const cats = (p.categories || []).filter(Boolean);
     return {
       id: p.id,
       title: title || "فيلم",
@@ -293,7 +311,8 @@
       image: image || "",
       link: p.link || p.url || "",
       desc: "",
-      isSeries: parsed.isSeries,
+      date: p.date || "",
+      isSeries,
     };
   }
 
@@ -892,11 +911,52 @@
     return '<div class="card-progress"><span style="width:' + p + '%"></span></div>';
   }
 
+  /* جودة الصورة والحالة: Top Cinema بيكتب الجودة في الوصف ("بجودة HD") مش في العنوان،
+   والعلامة "جديد" بنشتقها من تاريخ النشر */
+  const QUALITY_MAP = [
+    { re: /4\s*[Kk]\b/, label: "4K" },
+    { re: /blu[\s-]?ray/i, label: "BluRay" },
+    { re: /web[\s-]?rip/i, label: "WEBRip" },
+    { re: /web[\s-]?dl/i, label: "WEB-DL" },
+    { re: /hd[\s-]?rip/i, label: "HDRip" },
+    { re: /\b(?:FHD|1080)\b/i, label: "FHD" },
+    { re: /\bHD\b/, label: "HD" },
+  ];
+  const STATUS_MAP = [
+    { re: /حصري/, label: "حصري", cls: "st-excl" },
+    { re: /قريبا|قريباً/, label: "قريبًا", cls: "st-soon" },
+  ];
+
+  function parseBadges(title, desc, date) {
+    const t = String(title || "") + " " + String(desc || "");
+    let quality = "";
+    for (const q of QUALITY_MAP) {
+      if (q.re.test(t)) {
+        quality = q.label;
+        break;
+      }
+    }
+    let status = null;
+    for (const s of STATUS_MAP) {
+      if (s.re.test(String(title || ""))) {
+        status = s;
+        break;
+      }
+    }
+    if (!status && date) {
+      const days = (Date.now() - new Date(date).getTime()) / 86400000;
+      if (days >= 0 && days <= 7) status = { label: "جديد", cls: "st-new" };
+    }
+    return { quality, status };
+  }
+
   function cardHtml(item) {
     const id = item.id;
     const fav = isFav(id);
     const img = item.image || "";
+    const badges = parseBadges(item.title, item.desc, item.date);
     const metaParts = [];
+    if (badges.quality) metaParts.push('<span class="cmeta q">' + esc(badges.quality) + "</span>");
     if (item.seriesCount > 1) metaParts.push('<span class="cmeta">' + fa(item.seriesCount) + " حلقة</span>");
     if (item.year) metaParts.push('<span class="cmeta" data-goto="' + browseQuery({ year: item.year }) + '">' + esc(item.year) + "</span>");
     if (item.isSeries) metaParts.push('<span class="cmeta">مسلسل</span>');
@@ -923,6 +983,8 @@
       (img ? '<span class="poster-shimmer"></span>' : "") +
       (img ? '<span class="poster-spot"></span>' : "") +
       (!img ? "🎬" : "") +
+      (badges.quality ? '<span class="card-qual">' + esc(badges.quality) + "</span>" : "") +
+      (badges.status ? '<span class="card-status ' + badges.status.cls + '">' + esc(badges.status.label) + "</span>" : "") +
       (item.seriesCount > 1 ? '<span class="card-eps">' + fa(item.seriesCount) + " حلقة</span>" : "") +
       '<div class="card-detail"><div class="card-detail-mask"></div><div class="card-detail-body">' +
       (synopsis ? '<p class="card-detail-overview">' + esc(synopsis) + "…</p>" : "") +
@@ -1052,6 +1114,13 @@
         const slotEl = $("#heroSlot");
         if (!slotEl) return;
         slotEl.innerHTML = hero;
+        const heroEl = slotEl.querySelector(".hero");
+        if (heroEl) {
+          /* "ready" بيوقّف أنيميشن الدخول؛ بنضمنه بـ animationend + timeout
+             عشان لو الـ hero اتعاد بناؤه بسرعة ميفضلش بلا حالة نهائية */
+          heroEl.addEventListener("animationend", () => heroEl.classList.add("ready"), { once: true });
+          setTimeout(() => heroEl.classList.add("ready"), 900);
+        }
         document.querySelectorAll("[data-hdot]").forEach((d) =>
           d.addEventListener("click", () => {
             idx = +d.dataset.hdot;
@@ -1322,6 +1391,7 @@
         : "";
 
       const rating = getRating(item.id);
+      const movieBadges = parseBadges(item.title, item.desc, item.date);
       let curRating = rating || 0;
       let stars = "";
       for (let i = 1; i <= 5; i++) {
@@ -1353,6 +1423,11 @@
           .map((nm, i) => (item.cats[i] ? '<a class="badge genre" href="' + browseQuery({ cat: item.cats[i] }) + '">' + esc(nm) + "</a>" : ""))
           .join("") +
         (item.isSeries ? '<span class="badge">مسلسل/حلقة</span>' : "") +
+        (movieBadges.quality ? '<span class="badge q">' + esc(movieBadges.quality) + "</span>" : "") +
+        (movieBadges.status ? '<span class="badge ' + movieBadges.status.cls + '">' + esc(movieBadges.status.label) + "</span>" : "") +
+        (epsInfo.isEpisode
+          ? '<span class="badge">الحلقة ' + (epsInfo.finale ? "الأخيرة" : fa(epsInfo.episode)) + "</span>"
+          : "") +
         "</div>" +
         '<div class="movie-actions">' +
         '<a class="btn btn-primary" href="#/watch/' +
@@ -1361,12 +1436,27 @@
         '<button class="btn btn-ghost" id="favBtn">' +
         (isFav(item.id) ? "♥ إزالة من المفضلة" : "♡ أضف للمفضلة") +
         "</button>" +
+        '<button class="btn btn-ghost" id="shareBtn" title="نسخ رابط الصفحة">🔗 مشاركة</button>' +
         '<div class="stars">' +
         stars +
         "</div>" +
         '<span class="rating-note">' +
         (rating ? "بصّام: " + fa(rating) + "/5" : "قيّم الفيلم") +
         "</span></div>" +
+        '<div class="meta-list">' +
+        '<div><span>الجودة</span><b>' + esc(movieBadges.quality || "غير محددة") + "</b></div>" +
+        '<div><span>النوع</span><b>' +
+        esc(item.catNames.length ? item.catNames.slice(0, 3).join(" / ") : item.isSeries ? "مسلسل" : "فيلم") +
+        "</b></div>" +
+        '<div><span>سنة الإنتاج</span><b>' + esc(item.year || "غير محددة") + "</b></div>" +
+        (epsInfo.isEpisode
+          ? '<div><span>رقم الحلقة</span><b>' + (epsInfo.finale ? "الأخيرة" : fa(epsInfo.episode)) + "</b></div>"
+          : '<div><span>المدة</span><b>غير محددة</b></div>') +
+        (movieBadges.status
+          ? '<div><span>الحالة</span><b class="' + movieBadges.status.cls + '">' + esc(movieBadges.status.label) + "</b></div>"
+          : "") +
+        '<div><span>المصدر</span><b>Top Cinema</b></div>' +
+        "</div>" +
         (item.desc ? '<p class="overview">' + esc(item.desc) + "</p>" : "") +
         "</div></div></div></section>" +
         partsSection +
@@ -1381,6 +1471,20 @@
         const nowFav = toggleFav(item);
         $("#favBtn").textContent = nowFav ? "♥ إزالة من المفضلة" : "♡ أضف للمفضلة";
         toast(nowFav ? "أضيف للمفضلة" : "أُزيلت من المفضلة");
+      });
+      $("#shareBtn").addEventListener("click", async () => {
+        const url = location.href;
+        try {
+          if (navigator.share) {
+            await navigator.share({ title: item.title, url });
+          } else {
+            await navigator.clipboard.writeText(url);
+            toast("تم نسخ الرابط");
+          }
+        } catch (e) {
+          if (e && e.name === "AbortError") return;
+          toast("تعذرت المشاركة");
+        }
       });
       document.querySelectorAll(".stars button").forEach((b) =>
         b.addEventListener("click", () => {
@@ -1479,19 +1583,136 @@
         if (sa !== sb) return sa - sb;
         return 0;
       });
-      const posters = all.map((x) => x.it);
+      /* فلاتر وعرض تدريجي: السيرش بيرجع مئات العناصر، نعرض ٢٤ والباقي بالتحميل */
+      const SEARCH_STEP = 24;
+      let shown = SEARCH_STEP;
+      let typeFilter = "all";
+      let yearFilter = "";
+
+      const yearsAvail = [
+        ...new Set(
+          all
+            .map((x) => x.it.year)
+            .filter(Boolean)
+            .map(Number)
+            .filter(Boolean)
+        ),
+      ]
+        .sort((a, b) => b - a)
+        .slice(0, 16);
+
+      const listNow = () =>
+        all
+          .filter((x) =>
+            typeFilter === "film"
+              ? !x.it.isSeries
+              : typeFilter === "series"
+              ? x.it.isSeries
+              : true
+          )
+          .filter((x) => !yearFilter || String(x.it.year) === String(yearFilter))
+          .map((x) => x.it);
+
       const head =
         '<div class="search-head"><h2>نتائج البحث عن: <span style="color:var(--accent)">' +
         esc(q) +
         "</span></h2>" +
         '<p class="search-note">' +
-        (posters.length ? "مرتبة حسب الأقرب لبحثك — من مجموع " + fa(res.total) + " نتيجة في المصدر" : "") +
-        "</p></div>";
-      app.innerHTML = posters.length
-        ? head + '<div class="row">' + posters.map(cardHtml).join("") + "</div>"
-        : head + '<div class="empty"><div class="icon">🎬</div><p>لا توجد نتائج في مصدرنا الحالي لهذه الكلمة</p></div>';
-      bindGlobal();
-      observeReveals();
+        (all.length ? "مرتبة حسب الأقرب لبحثك — من مجموع " + fa(res.total) + " نتيجة في المصدر" : "") +
+        "</p>" +
+        '<div class="search-filters">' +
+        '<div class="filter-chips" data-sf-type>' +
+        '<button class="filter-chip' +
+        (typeFilter === "all" ? " active" : "") +
+        '" data-t="all">الكل</button>' +
+        '<button class="filter-chip' +
+        (typeFilter === "film" ? " active" : "") +
+        '" data-t="film">🎬 أفلام</button>' +
+        '<button class="filter-chip' +
+        (typeFilter === "series" ? " active" : "") +
+        '" data-t="series">📺 مسلسلات</button>' +
+        "</div>" +
+        (yearsAvail.length
+          ? '<div class="filter-chips" data-sf-year>' +
+            '<button class="filter-chip' +
+            (!yearFilter ? " active" : "") +
+            '" data-y="">كل السنين</button>' +
+            yearsAvail
+              .map(
+                (y) =>
+                  '<button class="filter-chip' +
+                  (String(yearFilter) === String(y) ? " active" : "") +
+                  '" data-y="' +
+                  y +
+                  '">' +
+                  fa(y) +
+                  "</button>"
+              )
+              .join("") +
+            "</div>"
+          : "") +
+        "</div></div>";
+
+      const moreSlot = () => {
+        const list = listNow();
+        if (!list.length) return "";
+        if (shown >= list.length)
+          return '<p class="more-end">عرض ' + fa(list.length) + " عنصر — وصلت للنهاية</p>";
+        return (
+          '<div class="more-wrap">' +
+          '<span class="more-count">عرض ' +
+          fa(Math.min(shown, list.length)) +
+          " من " +
+          fa(list.length) +
+          '</span><button id="loadMoreRes" class="btn btn-ghost load-more">تحميل المزيد</button>' +
+          "</div>"
+        );
+      };
+
+      const renderRes = () => {
+        const slot = $("#searchResults");
+        if (!slot) return;
+        const list = listNow();
+        slot.innerHTML = list.length
+          ? gridHtml(list.slice(0, shown))
+          : '<div class="empty"><div class="icon">🔍</div><p>لا توجد نتائج مطابقة لهذه الفلاتر</p></div>';
+        const oldMore = $(".search-more");
+        if (oldMore) oldMore.outerHTML = moreSlot();
+        else {
+          const wrap = document.createElement("div");
+          wrap.className = "search-more";
+          wrap.innerHTML = moreSlot();
+          slot.after(wrap);
+        }
+        const btn = $("#loadMoreRes");
+        if (btn)
+          btn.addEventListener("click", () => {
+            shown += SEARCH_STEP;
+            renderRes();
+          });
+        bindGlobal();
+        observeReveals();
+      };
+
+      app.innerHTML = head + '<div id="searchResults"></div>';
+      renderRes();
+
+      document.querySelectorAll("[data-sf-type] .filter-chip").forEach((b) =>
+        b.addEventListener("click", () => {
+          typeFilter = b.dataset.t;
+          shown = SEARCH_STEP;
+          document.querySelectorAll("[data-sf-type] .filter-chip").forEach((x) => x.classList.toggle("active", x === b));
+          renderRes();
+        })
+      );
+      document.querySelectorAll("[data-sf-year] .filter-chip").forEach((b) =>
+        b.addEventListener("click", () => {
+          yearFilter = b.dataset.y;
+          shown = SEARCH_STEP;
+          document.querySelectorAll("[data-sf-year] .filter-chip").forEach((x) => x.classList.toggle("active", x === b));
+          renderRes();
+        })
+      );
     } catch (e) {
       app.innerHTML = '<div class="error-box">تعذر البحث: ' + esc(e.message) + "</div>";
     }
@@ -1998,8 +2219,22 @@ const merged = dedupeSeries(poolRows(q), "series");
 
   /* ميني بلاير متابعة يطفو أسفل الشاشة */
   var miniEl = null;
+  const closeMini = () => {
+    try {
+      sessionStorage.setItem("eg_mini_x", "1");
+    } catch (e) {}
+    if (miniEl) miniEl.hidden = true;
+  };
+  document.addEventListener("click", (e) => {
+    const b = e.target && e.target.closest ? e.target.closest(".mini-watch-x") : null;
+    if (b) closeMini();
+  });
   function updateMini() {
-    if (sessionStorage.getItem("eg_mini_x") === "1") {
+    let dismissed = false;
+    try {
+      dismissed = sessionStorage.getItem("eg_mini_x") === "1";
+    } catch (e) {}
+    if (dismissed) {
       if (miniEl) miniEl.hidden = true;
       return;
     }
@@ -2016,11 +2251,7 @@ const merged = dedupeSeries(poolRows(q), "series");
         '<img class="mini-watch-img" alt="">' +
         '<div class="mini-watch-body"><span class="mini-watch-title"></span><span class="mini-watch-p"></span></div>' +
         '<a class="mini-watch-go" href="">▶ متابعة</a>' +
-        '<button class="mini-watch-x" title="إغلاق">✕</button>';
-      miniEl.querySelector(".mini-watch-x").addEventListener("click", () => {
-        sessionStorage.setItem("eg_mini_x", "1");
-        miniEl.hidden = true;
-      });
+        '<button class="mini-watch-x" title="إغلاق" aria-label="إغلاق">✕</button>';
       document.body.appendChild(miniEl);
     }
     const it = snapshotToItem(rec.snapshot);
